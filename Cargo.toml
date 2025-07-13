@@ -1,0 +1,3 @@
+[workspace]
+members = ["cargo-anatomy"]
+resolver = "2"
