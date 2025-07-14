@@ -331,8 +331,8 @@ struct RefVisitor<'a> {
 }
 
 impl<'ast> Visit<'ast> for RefVisitor<'_> {
-    fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        if let Some(seg) = node.path.segments.last() {
+    fn visit_path(&mut self, node: &'ast syn::Path) {
+        if let Some(seg) = node.segments.last() {
             let name = seg.ident.to_string();
             if self.defined.contains_key(&name) {
                 self.internal += 1;
@@ -340,7 +340,7 @@ impl<'ast> Visit<'ast> for RefVisitor<'_> {
                 self.external += 1;
             }
         }
-        syn::visit::visit_type_path(self, node);
+        syn::visit::visit_path(self, node);
     }
 }
 
@@ -394,8 +394,8 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         }
         syn::visit::visit_item_impl(self, i);
     }
-    fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        if let Some(seg) = node.path.segments.last() {
+    fn visit_path(&mut self, node: &'ast syn::Path) {
+        if let Some(seg) = node.segments.last() {
             let name = seg.ident.to_string();
             if let Some(current) = &self.current {
                 if self.defined.contains_key(&name) {
@@ -416,7 +416,7 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                 }
             }
         }
-        syn::visit::visit_type_path(self, node);
+        syn::visit::visit_path(self, node);
     }
 }
 
@@ -492,5 +492,26 @@ mod tests {
                 .map(|v| v.contains(&"B".to_string()))
                 .unwrap_or(false)
         );
+    }
+
+    #[test]
+    fn trait_bound_dependency() {
+        let src_a = "pub trait Foo {}";
+        let src_b = "use crate_a::Foo; pub struct Bar<U: Foo>(U);";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let metrics = analyze_workspace(&crates);
+        let metrics_a = metrics.get("crate_a").unwrap();
+        let metrics_b = metrics.get("crate_b").unwrap();
+
+        assert_eq!(metrics_a.ca, 1);
+        assert_eq!(metrics_b.ce, 1);
     }
 }
