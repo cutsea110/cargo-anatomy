@@ -11,6 +11,7 @@ fn print_help_to(mut w: impl Write) -> io::Result<()> {
     writeln!(w, "Options:")?;
     writeln!(w, "  -a, --all       Show classes and dependency graphs")?;
     writeln!(w, "  -V, --version   Show version information")?;
+    writeln!(w, "  -o, --output FORMAT  Output format: json or yaml")?;
     writeln!(w, "  -?, -h, --help  Show this help message")?;
     writeln!(w)?;
     writeln!(w, "Metrics:")?;
@@ -55,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut opts = Options::new();
     opts.optflag("a", "all", "Show classes and dependency graphs");
     opts.optflag("V", "version", "Show version information");
+    opts.optopt("o", "output", "Output format: json or yaml", "FORMAT");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 
@@ -78,6 +80,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let show_all = matches.opt_present("a") || matches.opt_present("all");
+    let format = matches
+        .opt_str("o")
+        .or_else(|| matches.opt_str("output"))
+        .unwrap_or_else(|| "json".to_string());
     let metadata = cargo_metadata::MetadataCommand::new().no_deps().exec()?;
     info!(
         "found {} workspace members",
@@ -103,7 +109,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 vec.push((package_name.clone(), detail.clone()));
             }
         }
-        println!("{}", serde_json::to_string_pretty(&vec)?);
+        let out_str = match format.as_str() {
+            "json" => serde_json::to_string_pretty(&vec)?,
+            "yaml" => serde_yaml::to_string(&vec)?,
+            other => {
+                eprintln!("unknown output format: {}", other);
+                return Ok(());
+            }
+        };
+        println!("{}", out_str);
     } else {
         let metrics_map = analyze_workspace(&crates);
         let mut out = Vec::new();
@@ -116,7 +130,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
         }
-        println!("{}", serde_json::to_string_pretty(&out)?);
+        let out_str = match format.as_str() {
+            "json" => serde_json::to_string_pretty(&out)?,
+            "yaml" => serde_yaml::to_string(&out)?,
+            other => {
+                eprintln!("unknown output format: {}", other);
+                return Ok(());
+            }
+        };
+        println!("{}", out_str);
     }
     Ok(())
 }

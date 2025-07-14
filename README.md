@@ -30,9 +30,12 @@ cargo anatomy -?
 
 # Show version
 cargo anatomy -V
+
+# Output in YAML format
+cargo anatomy -o yaml
 ```
 
-The command outputs metrics for every member crate in JSON format. Example output:
+The command outputs metrics for every member crate in JSON format by default. Use `-o yaml` for YAML output. Example output:
 
 ```json
 {
