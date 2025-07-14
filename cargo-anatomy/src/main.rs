@@ -73,29 +73,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse all crates first
     let mut crates = Vec::new();
+    let mut name_map = Vec::new();
     for id in &metadata.workspace_members {
         let package = &metadata[id];
         let files = parse_package(package)?;
-        crates.push((crate_target_name(package), files));
+        let crate_name = crate_target_name(package);
+        name_map.push((crate_name.clone(), package.name.clone()));
+        crates.push((crate_name, files));
     }
 
     if show_all {
         let map = analyze_workspace_details(&crates);
         let mut vec = Vec::new();
-        for (name, _files) in &crates {
-            if let Some(detail) = map.get(name) {
-                vec.push((name.clone(), detail.clone()));
+        for (crate_name, package_name) in &name_map {
+            if let Some(detail) = map.get(crate_name) {
+                vec.push((package_name.clone(), detail.clone()));
             }
         }
         println!("{}", serde_json::to_string_pretty(&vec)?);
     } else {
         let metrics_map = analyze_workspace(&crates);
         let mut out = Vec::new();
-        for (name, _files) in &crates {
-            info!("processing crate {}", name);
-            if let Some(metrics) = metrics_map.get(name) {
+        for (crate_name, package_name) in &name_map {
+            info!("processing crate {}", package_name);
+            if let Some(metrics) = metrics_map.get(crate_name) {
                 out.push(Output {
-                    crate_name: name.clone(),
+                    crate_name: package_name.clone(),
                     metrics: metrics.clone(),
                 });
             }
