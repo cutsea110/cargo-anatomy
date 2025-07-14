@@ -24,6 +24,12 @@ cargo anatomy
 
 # Show detailed class and dependency information
 cargo anatomy -a
+
+# Display help with metric descriptions
+cargo anatomy -?
+
+# Show version
+cargo anatomy -V
 ```
 
 The command outputs metrics for every member crate in JSON format. Example output:

@@ -2,6 +2,32 @@ use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package}
 use env_logger;
 use log::info;
 use serde::Serialize;
+use std::io::{self, Write};
+
+fn print_help_to(mut w: impl Write) -> io::Result<()> {
+    writeln!(w, "cargo-anatomy {}", env!("CARGO_PKG_VERSION"))?;
+    writeln!(w, "Usage: cargo anatomy [options]\n")?;
+    writeln!(w, "Options:")?;
+    writeln!(w, "  -a, --all       Show classes and dependency graphs")?;
+    writeln!(w, "  -V, --version   Show version information")?;
+    writeln!(w, "  -?, -h, --help  Show this help message")?;
+    writeln!(w)?;
+    writeln!(w, "Metrics:")?;
+    writeln!(w, "  N  - number of classes")?;
+    writeln!(w, "  R  - number of internal class relationships")?;
+    writeln!(w, "  H  - relational cohesion: (R + 1)/N")?;
+    writeln!(w, "  Ca - afferent coupling: external classes that depend on this crate")?;
+    writeln!(w, "  Ce - efferent coupling: classes in this crate depending on other workspace crates")?;
+    writeln!(w, "  A  - abstraction: traits / N")?;
+    writeln!(w, "  I  - instability: Ce / (Ce + Ca)")?;
+    writeln!(w, "  D  - distance from main sequence: |A + I - 1| / sqrt(2)")?;
+    writeln!(w, "  D' - normalized distance: |A + I - 1|")?;
+    Ok(())
+}
+
+fn print_help() {
+    let _ = print_help_to(io::stdout());
+}
 
 fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
     for target in &pkg.targets {
@@ -23,8 +49,22 @@ struct Output {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    let args: Vec<String> = std::env::args().collect();
 
-    let show_all = std::env::args().any(|a| a == "-a" || a == "--all");
+    if args.iter().any(|a| a == "-V" || a == "--version") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if args
+        .iter()
+        .any(|a| a == "-?" || a == "-h" || a == "--help")
+    {
+        print_help();
+        return Ok(());
+    }
+
+    let show_all = args.iter().any(|a| a == "-a" || a == "--all");
     let metadata = cargo_metadata::MetadataCommand::new().no_deps().exec()?;
     info!(
         "found {} workspace members",
