@@ -287,7 +287,6 @@ pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metr
 pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<String, CrateDetail> {
     debug!("analysing {} crates", crates.len());
 
-    let mut type_map = HashMap::new();
     let mut crate_defined = HashMap::new();
     let mut crate_abstract = HashMap::new();
     let mut method_map: HashMap<(String, String), String> = HashMap::new();
@@ -300,9 +299,6 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
         method_map.extend(methods);
         for (k, v) in bounds {
             trait_bounds.insert(k, v);
-        }
-        for ty in defined.keys() {
-            type_map.insert(ty.clone(), name.clone());
         }
         crate_defined.insert(name.clone(), defined);
         crate_abstract.insert(name.clone(), abstract_count);
@@ -322,9 +318,9 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
         let mut visitor = DetailVisitor {
             current: None,
             defined,
-            type_map: &type_map,
             crate_name: name,
             workspace_crates: &workspace_crates,
+            all_defined: &crate_defined,
             imports: HashMap::new(),
             internal: HashMap::new(),
             external: HashMap::new(),
@@ -504,9 +500,9 @@ impl<'ast> Visit<'ast> for RefVisitor<'_> {
 struct DetailVisitor<'a> {
     current: Option<String>,
     defined: &'a HashMap<String, ClassKind>,
-    type_map: &'a HashMap<String, String>,
     crate_name: &'a str,
     workspace_crates: &'a HashSet<String>,
+    all_defined: &'a HashMap<String, HashMap<String, ClassKind>>,
     imports: HashMap<String, Option<String>>,
     internal: HashMap<String, HashSet<String>>, // from -> to
     external: HashMap<String, HashMap<String, HashSet<String>>>, // from -> crate -> types
@@ -664,15 +660,17 @@ impl<'a> DetailVisitor<'a> {
                 }
                 Some(ref r) => {
                     if self.workspace_crates.contains(r) {
-                        if let Some(owner) = self.type_map.get(&name) {
-                            if owner == r {
-                                self.external
-                                    .entry(current.clone())
-                                    .or_default()
-                                    .entry(owner.clone())
-                                    .or_default()
-                                    .insert(name);
-                            }
+                        if self
+                            .all_defined
+                            .get(r)
+                            .map_or(false, |d| d.contains_key(&name))
+                        {
+                            self.external
+                                .entry(current.clone())
+                                .or_default()
+                                .entry(r.clone())
+                                .or_default()
+                                .insert(name);
                         }
                     }
                 }
@@ -682,16 +680,20 @@ impl<'a> DetailVisitor<'a> {
                             .entry(current.clone())
                             .or_default()
                             .insert(name);
-                    } else if let Some(import_root) = self.imports.get(&name).cloned().flatten() {
-                        if let Some(owner) = self.type_map.get(&name) {
-                            if &import_root == owner {
-                                self.external
-                                    .entry(current.clone())
-                                    .or_default()
-                                    .entry(owner.clone())
-                                    .or_default()
-                                    .insert(name);
-                            }
+                    } else if let Some(import_root) =
+                        self.imports.get(&name).cloned().flatten()
+                    {
+                        if self
+                            .all_defined
+                            .get(&import_root)
+                            .map_or(false, |d| d.contains_key(&name))
+                        {
+                            self.external
+                                .entry(current.clone())
+                                .or_default()
+                                .entry(import_root.clone())
+                                .or_default()
+                                .insert(name);
                         }
                     }
                 }
@@ -713,7 +715,12 @@ impl<'a> DetailVisitor<'a> {
                     }
                     if let Some(seg) = p.path.segments.last() {
                         let name = seg.ident.to_string();
-                        if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
+                        if self.defined.contains_key(&name)
+                            || self
+                                .all_defined
+                                .values()
+                                .any(|d| d.contains_key(&name))
+                        {
                             let root = self.path_root(&p.path);
                             return Some((name, root));
                         }
@@ -772,7 +779,12 @@ impl<'a> DetailVisitor<'a> {
                 }
                 if let Some(seg) = p.path.segments.last() {
                     let name = seg.ident.to_string();
-                    if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
+                    if self.defined.contains_key(&name)
+                        || self
+                            .all_defined
+                            .values()
+                            .any(|d| d.contains_key(&name))
+                    {
                         let root = self.path_root(&p.path);
                         return Some((name, root));
                     }
@@ -1116,5 +1128,52 @@ mod tests {
         assert_eq!(a_info.metrics.ca, 0);
         assert!(b_info.external_depends_on.is_empty());
         assert!(a_info.external_depended_by.is_empty());
+    }
+
+    #[test]
+    fn struct_usage_in_trait() {
+        let src_a = r#"
+            pub struct Paycheck;
+            impl Paycheck { pub fn new() -> Self { Paycheck } }
+        "#;
+        let src_c = "pub struct Paycheck;";
+        let src_b = r#"
+            use crate_a::Paycheck;
+            pub trait Payday {
+                fn run(&self) {
+                    self.run_tx(|_| {
+                        let _ = Paycheck::new();
+                    });
+                }
+                fn run_tx<F>(&self, f: F) where F: FnOnce(i32) {}
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+            ("crate_c".to_string(), vec![file_c.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert!(b_info
+            .external_depends_on
+            .get("Payday")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Paycheck".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("Paycheck")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Payday".to_string()))
+            .unwrap_or(false));
     }
 }
