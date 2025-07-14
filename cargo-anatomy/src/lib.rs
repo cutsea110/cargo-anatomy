@@ -75,11 +75,13 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
         match output {
             syn::ReturnType::Type(_, ty) => match &**ty {
-                syn::Type::Path(p) => p
-                    .path
-                    .segments
-                    .last()
-                    .map(|s| if s.ident == "Self" { self_ty.to_string() } else { s.ident.to_string() }),
+                syn::Type::Path(p) => p.path.segments.last().map(|s| {
+                    if s.ident == "Self" {
+                        self_ty.to_string()
+                    } else {
+                        s.ident.to_string()
+                    }
+                }),
                 _ => None,
             },
             _ => None,
@@ -586,6 +588,9 @@ impl<'a> DetailVisitor<'a> {
                 None
             }
             syn::Expr::Path(p) => {
+                if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
+                    return self.current.clone();
+                }
                 if let Some(seg) = p.path.segments.last() {
                     let name = seg.ident.to_string();
                     if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
@@ -727,6 +732,43 @@ mod tests {
             impl Use {
                 pub fn run() {
                     crate_a::Dao::new().delete();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let metrics = analyze_workspace(&crates);
+        let metrics_a = metrics.get("crate_a").unwrap();
+        let metrics_b = metrics.get("crate_b").unwrap();
+
+        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(metrics_a.ca, 1);
+    }
+
+    #[test]
+    fn chained_method_call_dependency() {
+        let src_a = r#"
+            pub struct Dao;
+            pub trait HaveDao {
+                fn dao(&self) -> Dao;
+            }
+            impl Dao {
+                pub fn delete(&self) {}
+            }
+        "#;
+        let src_b = r#"
+            use crate_a::{Dao, HaveDao};
+            pub struct Use<D: HaveDao> { inner: D }
+            impl<D: HaveDao> Use<D> {
+                pub fn run(&self) {
+                    self.inner.dao().delete();
                 }
             }
         "#;
