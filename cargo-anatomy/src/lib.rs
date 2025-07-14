@@ -244,11 +244,6 @@ pub fn parse_package(
             {
                 continue;
             }
-            if let Some(fname) = entry.path().file_name().and_then(|s| s.to_str()) {
-                if fname.starts_with("test") {
-                    continue;
-                }
-            }
             debug!("parsing {}", entry.path().display());
             let content = fs::read_to_string(entry.path())?;
             let file = syn::parse_file(&content)?;
