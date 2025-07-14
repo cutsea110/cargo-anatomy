@@ -552,6 +552,12 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         }
         syn::visit::visit_item_impl(self, i);
     }
+    fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
+        let name = i.sig.ident.to_string();
+        self.current = Some(name);
+        syn::visit::visit_item_fn(self, i);
+        self.current = None;
+    }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
         fn handle(
             tree: &syn::UseTree,
@@ -1217,5 +1223,38 @@ mod tests {
         let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn free_function_dependency() {
+        let src_a = "pub struct ThreadPool;";
+        let src_b = "use crate_a::ThreadPool; fn main() { let _ = ThreadPool; }";
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"ThreadPool".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("ThreadPool")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"main".to_string()))
+            .unwrap_or(false));
     }
 }
