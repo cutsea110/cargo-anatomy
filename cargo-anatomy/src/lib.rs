@@ -73,15 +73,36 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
 pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
     fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
+        fn from_path(p: &syn::Path, self_ty: &str) -> Option<String> {
+            p.segments.last().map(|s| {
+                if s.ident == "Self" {
+                    self_ty.to_string()
+                } else {
+                    s.ident.to_string()
+                }
+            })
+        }
+
+        fn from_impl_trait(it: &syn::TypeImplTrait) -> Option<String> {
+            for b in &it.bounds {
+                if let syn::TypeParamBound::Trait(t) = b {
+                    if let Some(seg) = t.path.segments.last() {
+                        return Some(seg.ident.to_string());
+                    }
+                }
+            }
+            None
+        }
+
         match output {
             syn::ReturnType::Type(_, ty) => match &**ty {
-                syn::Type::Path(p) => p.path.segments.last().map(|s| {
-                    if s.ident == "Self" {
-                        self_ty.to_string()
-                    } else {
-                        s.ident.to_string()
-                    }
-                }),
+                syn::Type::Path(p) => from_path(&p.path, self_ty),
+                syn::Type::Reference(r) => match &*r.elem {
+                    syn::Type::Path(p) => from_path(&p.path, self_ty),
+                    syn::Type::ImplTrait(it) => from_impl_trait(it),
+                    _ => None,
+                },
+                syn::Type::ImplTrait(it) => from_impl_trait(it),
                 _ => None,
             },
             _ => None,
@@ -120,6 +141,27 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
         }
     }
 
+    map
+}
+
+pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
+    let mut map = HashMap::new();
+    for file in files {
+        for item in &file.items {
+            if let syn::Item::Trait(t) = item {
+                let name = t.ident.to_string();
+                let mut bounds = Vec::new();
+                for b in &t.supertraits {
+                    if let syn::TypeParamBound::Trait(tb) = b {
+                        if let Some(seg) = tb.path.segments.last() {
+                            bounds.push(seg.ident.to_string());
+                        }
+                    }
+                }
+                map.insert(name, bounds);
+            }
+        }
+    }
     map
 }
 
@@ -223,11 +265,16 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
     let mut crate_defined = HashMap::new();
     let mut crate_abstract = HashMap::new();
     let mut method_map: HashMap<(String, String), String> = HashMap::new();
+    let mut trait_bounds: HashMap<String, Vec<String>> = HashMap::new();
 
     for (name, files) in crates {
         let (defined, abstract_count) = collect_defined(files);
         let methods = collect_methods(files);
+        let bounds = collect_trait_bounds(files);
         method_map.extend(methods);
+        for (k, v) in bounds {
+            trait_bounds.insert(k, v);
+        }
         for ty in defined.keys() {
             type_map.insert(ty.clone(), name.clone());
         }
@@ -248,6 +295,7 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
             internal: HashMap::new(),
             external: HashMap::new(),
             methods: &method_map,
+            trait_bounds: &trait_bounds,
         };
         for f in files {
             visitor.visit_file(f);
@@ -426,6 +474,7 @@ struct DetailVisitor<'a> {
     internal: HashMap<String, HashSet<String>>, // from -> to
     external: HashMap<String, HashMap<String, HashSet<String>>>, // from -> crate -> types
     methods: &'a HashMap<(String, String), String>,
+    trait_bounds: &'a HashMap<String, Vec<String>>,
 }
 
 impl<'ast> Visit<'ast> for DetailVisitor<'_> {
@@ -577,11 +626,26 @@ impl<'a> DetailVisitor<'a> {
             }
             syn::Expr::MethodCall(mc) => {
                 if let Some(receiver_ty) = self.infer_expr_type(&mc.receiver) {
-                    if let Some(ret) = self
-                        .methods
-                        .get(&(receiver_ty.clone(), mc.method.to_string()))
+                    if let Some(ret) =
+                        self.methods.get(&(receiver_ty.clone(), mc.method.to_string()))
                     {
                         return Some(ret.clone());
+                    }
+                    if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
+                        let mut found = None;
+                        for b in bounds {
+                            if let Some(ret) =
+                                self.methods.get(&(b.clone(), mc.method.to_string()))
+                            {
+                                if found.is_some() {
+                                    return None;
+                                }
+                                found = Some(ret.clone());
+                            }
+                        }
+                        if let Some(ret) = found {
+                            return Some(ret);
+                        }
                     }
                     return Some(receiver_ty);
                 }
