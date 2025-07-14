@@ -1227,8 +1227,8 @@ mod tests {
 
     #[test]
     fn free_function_dependency() {
-        let src_a = "pub struct ThreadPool;";
-        let src_b = "use crate_a::ThreadPool; fn main() { let _ = ThreadPool; }";
+        let src_a = "pub struct Helper;";
+        let src_b = "use crate_a::Helper; fn main() { let _ = Helper; }";
         let file_a: syn::File = syn::parse_str(src_a).unwrap();
         let file_b: syn::File = syn::parse_str(src_b).unwrap();
 
@@ -1248,11 +1248,11 @@ mod tests {
             .external_depends_on
             .get("main")
             .and_then(|m| m.get("crate_a"))
-            .map(|v| v.contains(&"ThreadPool".to_string()))
+            .map(|v| v.contains(&"Helper".to_string()))
             .unwrap_or(false));
         assert!(a_info
             .external_depended_by
-            .get("ThreadPool")
+            .get("Helper")
             .and_then(|m| m.get("crate_b"))
             .map(|v| v.contains(&"main".to_string()))
             .unwrap_or(false));
