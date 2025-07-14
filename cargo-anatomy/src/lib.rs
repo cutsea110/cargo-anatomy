@@ -23,6 +23,7 @@ pub struct ClassInfo {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Metrics {
+    pub r: usize,
     pub n: usize,
     pub h: f64,
     pub ca: usize,
@@ -265,6 +266,7 @@ pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metri
     );
 
     Metrics {
+        r,
         n,
         h,
         ca,
@@ -451,6 +453,7 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
             name.clone(),
             CrateDetail {
                 metrics: Metrics {
+                    r,
                     n,
                     h,
                     ca,
@@ -1183,8 +1186,7 @@ mod tests {
         let crates = vec![("crate_a".to_string(), vec![file.clone()])];
         let info = analyze_workspace_details(&crates);
         let a = info.get("crate_a").unwrap();
-        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
-        assert!((r - 1.0).abs() < 1e-6);
+        assert_eq!(a.metrics.r, 1);
         let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&"B".to_string()));
@@ -1192,13 +1194,12 @@ mod tests {
 
     #[test]
     fn r_multiple_edges() {
-        let src = "pub struct B; pub struct A { b: B } pub struct C { b: B }";
+        let src = "pub struct B; pub struct C { b1: B, b2: B } pub struct A { b: B, c: C }";
         let file: syn::File = syn::parse_str(src).unwrap();
         let crates = vec![("crate_a".to_string(), vec![file.clone()])];
         let info = analyze_workspace_details(&crates);
         let a = info.get("crate_a").unwrap();
-        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
-        assert!((r - 2.0).abs() < 1e-6);
+        assert_eq!(a.metrics.r, 3);
         let a_deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
         let c_deps = a.internal_depends_on.get("C").cloned().unwrap_or_default();
         assert!(a_deps.contains(&"B".to_string()));
@@ -1212,8 +1213,7 @@ mod tests {
         let crates = vec![("crate_a".to_string(), vec![file.clone()])];
         let info = analyze_workspace_details(&crates);
         let a = info.get("crate_a").unwrap();
-        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
-        assert!((r - 1.0).abs() < 1e-6);
+        assert_eq!(a.metrics.r, 1);
         let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&"B".to_string()));
