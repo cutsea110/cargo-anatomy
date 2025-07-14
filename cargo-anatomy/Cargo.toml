@@ -2,6 +2,13 @@
 name = "cargo-anatomy"
 version = "0.1.0"
 edition = "2021"
+description = "Analyze Rust workspaces and report package metrics"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cutsea110/cargo-anatomy"
+readme = "../README.md"
+homepage = "https://github.com/cutsea110/cargo-anatomy"
+keywords = ["cargo", "metrics", "analysis", "workspace"]
+categories = ["development-tools", "development-tools::cargo-plugins"]
 
 [dependencies]
 cargo_metadata = "0.15"
