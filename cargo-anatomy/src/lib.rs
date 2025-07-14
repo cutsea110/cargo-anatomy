@@ -7,6 +7,21 @@ use serde::Serialize;
 use syn::{visit::Visit, File};
 use walkdir::WalkDir;
 
+fn has_test_attr(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        if a.path().is_ident("test") {
+            true
+        } else if a.path().is_ident("cfg") {
+            match &a.meta {
+                syn::Meta::List(l) => l.tokens.to_string().contains("test"),
+                _ => false,
+            }
+        } else {
+            false
+        }
+    })
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub enum ClassKind {
     Struct,
@@ -49,19 +64,22 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     let mut abstract_count = 0usize;
 
     for file in files {
+        if has_test_attr(&file.attrs) {
+            continue;
+        }
         for item in &file.items {
             match item {
-                syn::Item::Struct(item) => {
+                syn::Item::Struct(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::Struct);
                 }
-                syn::Item::Enum(item) => {
+                syn::Item::Enum(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::Enum);
                 }
-                syn::Item::Trait(item) => {
+                syn::Item::Trait(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::Trait);
                     abstract_count += 1;
                 }
-                syn::Item::Type(item) => {
+                syn::Item::Type(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::TypeAlias);
                 }
                 _ => {}
@@ -137,14 +155,20 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     }
 
     for file in files {
+        if has_test_attr(&file.attrs) {
+            continue;
+        }
         for item in &file.items {
             match item {
-                syn::Item::Impl(imp) => {
+                syn::Item::Impl(imp) if !has_test_attr(&imp.attrs) => {
                     if let syn::Type::Path(tp) = &*imp.self_ty {
                         if let Some(seg) = tp.path.segments.last() {
                             let self_ty = seg.ident.to_string();
                             for item in &imp.items {
                                 if let syn::ImplItem::Fn(m) = item {
+                                    if has_test_attr(&m.attrs) {
+                                        continue;
+                                    }
                                     if let Some(ret) = ret_ty(&m.sig.output, &self_ty) {
                                         map.insert((self_ty.clone(), m.sig.ident.to_string()), ret);
                                     }
@@ -153,10 +177,13 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
                         }
                     }
                 }
-                syn::Item::Trait(t) => {
+                syn::Item::Trait(t) if !has_test_attr(&t.attrs) => {
                     let trait_name = t.ident.to_string();
                     for item in &t.items {
                         if let syn::TraitItem::Fn(m) = item {
+                            if has_test_attr(&m.attrs) {
+                                continue;
+                            }
                             if let Some(ret) = ret_ty(&m.sig.output, &trait_name) {
                                 map.insert((trait_name.clone(), m.sig.ident.to_string()), ret);
                             }
@@ -174,8 +201,14 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
 pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     let mut map = HashMap::new();
     for file in files {
+        if has_test_attr(&file.attrs) {
+            continue;
+        }
         for item in &file.items {
             if let syn::Item::Trait(t) = item {
+                if has_test_attr(&t.attrs) {
+                    continue;
+                }
                 let name = t.ident.to_string();
                 let mut bounds = Vec::new();
                 for b in &t.supertraits {
@@ -204,6 +237,18 @@ pub fn parse_package(
         if entry.file_type().is_file()
             && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
         {
+            if entry
+                .path()
+                .components()
+                .any(|c| c.as_os_str() == "tests")
+            {
+                continue;
+            }
+            if let Some(fname) = entry.path().file_name().and_then(|s| s.to_str()) {
+                if fname.starts_with("test") {
+                    continue;
+                }
+            }
             debug!("parsing {}", entry.path().display());
             let content = fs::read_to_string(entry.path())?;
             let file = syn::parse_file(&content)?;
@@ -514,31 +559,52 @@ struct DetailVisitor<'a> {
 }
 
 impl<'ast> Visit<'ast> for DetailVisitor<'_> {
+    fn visit_file(&mut self, i: &'ast syn::File) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
+        syn::visit::visit_file(self, i);
+    }
     fn visit_item_struct(&mut self, i: &'ast syn::ItemStruct) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         let name = i.ident.to_string();
         self.current = Some(name);
         syn::visit::visit_item_struct(self, i);
         self.current = None;
     }
     fn visit_item_enum(&mut self, i: &'ast syn::ItemEnum) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         let name = i.ident.to_string();
         self.current = Some(name);
         syn::visit::visit_item_enum(self, i);
         self.current = None;
     }
     fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         let name = i.ident.to_string();
         self.current = Some(name);
         syn::visit::visit_item_trait(self, i);
         self.current = None;
     }
     fn visit_item_type(&mut self, i: &'ast syn::ItemType) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         let name = i.ident.to_string();
         self.current = Some(name);
         syn::visit::visit_item_type(self, i);
         self.current = None;
     }
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         if let syn::Type::Path(tp) = &*i.self_ty {
             if let Some(seg) = tp.path.segments.last() {
                 let name = seg.ident.to_string();
@@ -553,10 +619,19 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         syn::visit::visit_item_impl(self, i);
     }
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
         let name = i.sig.ident.to_string();
         self.current = Some(name);
         syn::visit::visit_item_fn(self, i);
         self.current = None;
+    }
+    fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
+        syn::visit::visit_item_mod(self, i);
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
         fn handle(
