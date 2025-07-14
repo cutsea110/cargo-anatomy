@@ -585,7 +585,22 @@ impl<'a> DetailVisitor<'a> {
                     }
                     return Some(receiver_ty);
                 }
-                None
+
+                // Try to infer from a uniquely named method when receiver type is
+                // unknown. This allows chained calls like `self.inner.dao()`
+                // where `dao` is defined only on a trait.
+                let mut ret = None;
+                for ((_, name), r) in self.methods.iter() {
+                    if name == &mc.method.to_string() {
+                        if ret.is_some() {
+                            // Ambiguous method name
+                            return None;
+                        }
+                        // Returning the trait or type's return type
+                        ret = Some(r.clone());
+                    }
+                }
+                ret
             }
             syn::Expr::Path(p) => {
                 if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
@@ -785,7 +800,8 @@ mod tests {
         let metrics_a = metrics.get("crate_a").unwrap();
         let metrics_b = metrics.get("crate_b").unwrap();
 
-        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(metrics_b.ce, 2);
+        assert_eq!(metrics_b.ca, 0);
         assert_eq!(metrics_a.ca, 1);
     }
 }
