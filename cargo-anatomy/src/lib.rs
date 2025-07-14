@@ -1176,4 +1176,46 @@ mod tests {
             .map(|v| v.contains(&"Payday".to_string()))
             .unwrap_or(false));
     }
+    #[test]
+    fn r_counts_unique_edges() {
+        let src = "pub struct B; pub struct A { b1: B, b2: B }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
+        assert!((r - 1.0).abs() < 1e-6);
+        let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn r_multiple_edges() {
+        let src = "pub struct B; pub struct A { b: B } pub struct C { b: B }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
+        assert!((r - 2.0).abs() < 1e-6);
+        let a_deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        let c_deps = a.internal_depends_on.get("C").cloned().unwrap_or_default();
+        assert!(a_deps.contains(&"B".to_string()));
+        assert!(c_deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn r_counts_method_body() {
+        let src = "pub struct B; pub struct A; impl A { fn make() -> B { B } }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        let r = a.metrics.h * a.metrics.n as f64 - 1.0;
+        assert!((r - 1.0).abs() < 1e-6);
+        let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&"B".to_string()));
+    }
 }
