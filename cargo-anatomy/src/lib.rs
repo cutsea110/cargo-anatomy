@@ -70,6 +70,57 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     (defined, abstract_count)
 }
 
+pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
+    let mut map = HashMap::new();
+    fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
+        match output {
+            syn::ReturnType::Type(_, ty) => match &**ty {
+                syn::Type::Path(p) => p
+                    .path
+                    .segments
+                    .last()
+                    .map(|s| if s.ident == "Self" { self_ty.to_string() } else { s.ident.to_string() }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    for file in files {
+        for item in &file.items {
+            match item {
+                syn::Item::Impl(imp) => {
+                    if let syn::Type::Path(tp) = &*imp.self_ty {
+                        if let Some(seg) = tp.path.segments.last() {
+                            let self_ty = seg.ident.to_string();
+                            for item in &imp.items {
+                                if let syn::ImplItem::Fn(m) = item {
+                                    if let Some(ret) = ret_ty(&m.sig.output, &self_ty) {
+                                        map.insert((self_ty.clone(), m.sig.ident.to_string()), ret);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                syn::Item::Trait(t) => {
+                    let trait_name = t.ident.to_string();
+                    for item in &t.items {
+                        if let syn::TraitItem::Fn(m) = item {
+                            if let Some(ret) = ret_ty(&m.sig.output, &trait_name) {
+                                map.insert((trait_name.clone(), m.sig.ident.to_string()), ret);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    map
+}
+
 pub fn parse_package(
     package: &cargo_metadata::Package,
 ) -> Result<Vec<File>, Box<dyn std::error::Error>> {
@@ -169,9 +220,12 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
     let mut type_map = HashMap::new();
     let mut crate_defined = HashMap::new();
     let mut crate_abstract = HashMap::new();
+    let mut method_map: HashMap<(String, String), String> = HashMap::new();
 
     for (name, files) in crates {
         let (defined, abstract_count) = collect_defined(files);
+        let methods = collect_methods(files);
+        method_map.extend(methods);
         for ty in defined.keys() {
             type_map.insert(ty.clone(), name.clone());
         }
@@ -182,9 +236,6 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
     let mut internal_refs: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
     let mut external_refs: HashMap<String, HashMap<String, HashMap<String, HashSet<String>>>> =
         HashMap::new();
-    let mut internal_counts = HashMap::new();
-    let mut ce_counts = HashMap::new();
-    let mut ca_counts: HashMap<String, usize> = HashMap::new();
 
     for (name, files) in crates {
         let defined = crate_defined.get(name).unwrap();
@@ -194,17 +245,13 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
             type_map: &type_map,
             internal: HashMap::new(),
             external: HashMap::new(),
-            internal_count: 0,
-            ce_count: 0,
-            ca_counts: &mut ca_counts,
+            methods: &method_map,
         };
         for f in files {
             visitor.visit_file(f);
         }
         internal_refs.insert(name.clone(), visitor.internal);
         external_refs.insert(name.clone(), visitor.external);
-        internal_counts.insert(name.clone(), visitor.internal_count);
-        ce_counts.insert(name.clone(), visitor.ce_count);
     }
 
     let mut internal_rev: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
@@ -243,9 +290,35 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
     let mut result = HashMap::new();
     for (name, _) in crates {
         let n = crate_defined.get(name).map(|s| s.len()).unwrap_or(0);
-        let r = *internal_counts.get(name).unwrap_or(&0);
-        let ce = *ce_counts.get(name).unwrap_or(&0);
-        let ca = *ca_counts.get(name).unwrap_or(&0);
+        let r = internal_refs
+            .get(name)
+            .map(|m| m.values().map(|s| s.len()).sum())
+            .unwrap_or(0);
+
+        let mut ce_set = HashSet::new();
+        if let Some(map) = external_refs.get(name) {
+            for crate_map in map.values() {
+                for (c, types) in crate_map {
+                    for ty in types {
+                        ce_set.insert(format!("{}::{}", c, ty));
+                    }
+                }
+            }
+        }
+        let ce = ce_set.len();
+
+        let mut ca_set = HashSet::new();
+        if let Some(map) = external_rev.get(name) {
+            for crate_map in map.values() {
+                for (c, from_set) in crate_map {
+                    for src in from_set {
+                        ca_set.insert(format!("{}::{}", c, src));
+                    }
+                }
+            }
+        }
+        let ca = ca_set.len();
+
         let a_count = *crate_abstract.get(name).unwrap_or(&0);
         let h = if n > 0 {
             (r as f64 + 1.0) / n as f64
@@ -350,9 +423,7 @@ struct DetailVisitor<'a> {
     type_map: &'a HashMap<String, String>,
     internal: HashMap<String, HashSet<String>>, // from -> to
     external: HashMap<String, HashMap<String, HashSet<String>>>, // from -> crate -> types
-    internal_count: usize,
-    ce_count: usize,
-    ca_counts: &'a mut HashMap<String, usize>,
+    methods: &'a HashMap<(String, String), String>,
 }
 
 impl<'ast> Visit<'ast> for DetailVisitor<'_> {
@@ -399,14 +470,11 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             let name = seg.ident.to_string();
             if let Some(current) = &self.current {
                 if self.defined.contains_key(&name) {
-                    self.internal_count += 1;
                     self.internal
                         .entry(current.clone())
                         .or_default()
                         .insert(name.clone());
                 } else if let Some(owner) = self.type_map.get(&name) {
-                    self.ce_count += 1;
-                    *self.ca_counts.entry(owner.clone()).or_insert(0) += 1;
                     self.external
                         .entry(current.clone())
                         .or_default()
@@ -417,6 +485,117 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             }
         }
         syn::visit::visit_path(self, node);
+    }
+
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(p) = &*node.func {
+            if p.path.segments.len() >= 2 {
+                let func = p.path.segments.last().unwrap().ident.to_string();
+                let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
+                if let Some(current) = &self.current {
+                    if self.defined.contains_key(&ty) {
+                        self.internal
+                            .entry(current.clone())
+                            .or_default()
+                            .insert(ty.clone());
+                    } else if let Some(owner) = self.type_map.get(&ty) {
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(owner.clone())
+                            .or_default()
+                            .insert(ty.clone());
+                    }
+                }
+                let _ = self.methods.get(&(ty, func));
+            } else if let Some(seg) = p.path.segments.last() {
+                let name = seg.ident.to_string();
+                if let Some(current) = &self.current {
+                    if self.defined.contains_key(&name) {
+                        self.internal
+                            .entry(current.clone())
+                            .or_default()
+                            .insert(name.clone());
+                    } else if let Some(owner) = self.type_map.get(&name) {
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(owner.clone())
+                            .or_default()
+                            .insert(name.clone());
+                    }
+                }
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if let Some(current) = &self.current {
+            if let Some(receiver_ty) = self.infer_expr_type(&node.receiver) {
+                if self.defined.contains_key(&receiver_ty) {
+                    self.internal
+                        .entry(current.clone())
+                        .or_default()
+                        .insert(receiver_ty.clone());
+                } else if let Some(owner) = self.type_map.get(&receiver_ty) {
+                    self.external
+                        .entry(current.clone())
+                        .or_default()
+                        .entry(owner.clone())
+                        .or_default()
+                        .insert(receiver_ty.clone());
+                }
+            }
+        }
+        syn::visit::visit_expr_method_call(self, node);
+    }
+}
+
+impl<'a> DetailVisitor<'a> {
+    fn infer_expr_type(&self, expr: &syn::Expr) -> Option<String> {
+        match expr {
+            syn::Expr::Call(call) => {
+                if let syn::Expr::Path(p) = &*call.func {
+                    if p.path.segments.len() >= 2 {
+                        let func = p.path.segments.last().unwrap().ident.to_string();
+                        let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
+                        if let Some(ret) = self.methods.get(&(ty.clone(), func.clone())) {
+                            return Some(ret.clone());
+                        }
+                    }
+                    if let Some(seg) = p.path.segments.last() {
+                        let name = seg.ident.to_string();
+                        if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
+                            return Some(name);
+                        }
+                    }
+                }
+                None
+            }
+            syn::Expr::MethodCall(mc) => {
+                if let Some(receiver_ty) = self.infer_expr_type(&mc.receiver) {
+                    if let Some(ret) = self
+                        .methods
+                        .get(&(receiver_ty.clone(), mc.method.to_string()))
+                    {
+                        return Some(ret.clone());
+                    }
+                    return Some(receiver_ty);
+                }
+                None
+            }
+            syn::Expr::Path(p) => {
+                if let Some(seg) = p.path.segments.last() {
+                    let name = seg.ident.to_string();
+                    if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
+                        return Some(name);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 }
 
@@ -513,5 +692,58 @@ mod tests {
 
         assert_eq!(metrics_a.ca, 1);
         assert_eq!(metrics_b.ce, 1);
+    }
+
+    #[test]
+    fn unique_counts() {
+        let src_a = "pub struct A;";
+        let src_b = "pub struct B { a1: crate_a::A, a2: crate_a::A }";
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+        let metrics = analyze_workspace(&crates);
+        let metrics_a = metrics.get("crate_a").unwrap();
+        let metrics_b = metrics.get("crate_b").unwrap();
+
+        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(metrics_a.ca, 1);
+    }
+
+    #[test]
+    fn method_call_dependency() {
+        let src_a = r#"
+            pub struct Dao;
+            impl Dao {
+                pub fn new() -> Self { Dao }
+                pub fn delete(&self) {}
+            }
+        "#;
+        let src_b = r#"
+            pub struct Use;
+            impl Use {
+                pub fn run() {
+                    crate_a::Dao::new().delete();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let metrics = analyze_workspace(&crates);
+        let metrics_a = metrics.get("crate_a").unwrap();
+        let metrics_b = metrics.get("crate_b").unwrap();
+
+        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(metrics_a.ca, 1);
     }
 }
