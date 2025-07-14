@@ -1,5 +1,6 @@
 use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package};
 use env_logger;
+use getopts::Options;
 use log::info;
 use serde::Serialize;
 use std::io::{self, Write};
@@ -51,20 +52,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args: Vec<String> = std::env::args().collect();
 
-    if args.iter().any(|a| a == "-V" || a == "--version") {
+    let mut opts = Options::new();
+    opts.optflag("a", "all", "Show classes and dependency graphs");
+    opts.optflag("V", "version", "Show version information");
+    opts.optflag("?", "", "Show this help message");
+    opts.optflag("h", "help", "Show this help message");
+
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => m,
+        Err(f) => {
+            eprintln!("{}", f.to_string());
+            print_help();
+            return Ok(());
+        }
+    };
+
+    if matches.opt_present("V") || matches.opt_present("version") {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
-    if args
-        .iter()
-        .any(|a| a == "-?" || a == "-h" || a == "--help")
-    {
+    if matches.opt_present("?") || matches.opt_present("h") || matches.opt_present("help") {
         print_help();
         return Ok(());
     }
 
-    let show_all = args.iter().any(|a| a == "-a" || a == "--all");
+    let show_all = matches.opt_present("a") || matches.opt_present("all");
     let metadata = cargo_metadata::MetadataCommand::new().no_deps().exec()?;
     info!(
         "found {} workspace members",
