@@ -4,7 +4,7 @@ use std::fs;
 use log::{debug, info};
 
 use serde::Serialize;
-use syn::{File, visit::Visit};
+use syn::{visit::Visit, File};
 use walkdir::WalkDir;
 
 #[derive(Debug, Serialize, Clone)]
@@ -73,16 +73,6 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
 pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
     fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
-        fn from_path(p: &syn::Path, self_ty: &str) -> Option<String> {
-            p.segments.last().map(|s| {
-                if s.ident == "Self" {
-                    self_ty.to_string()
-                } else {
-                    s.ident.to_string()
-                }
-            })
-        }
-
         fn from_impl_trait(it: &syn::TypeImplTrait) -> Option<String> {
             for b in &it.bounds {
                 if let syn::TypeParamBound::Trait(t) = b {
@@ -94,17 +84,53 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
             None
         }
 
-        match output {
-            syn::ReturnType::Type(_, ty) => match &**ty {
+        fn from_trait_object(obj: &syn::TypeTraitObject) -> Option<String> {
+            for b in &obj.bounds {
+                if let syn::TypeParamBound::Trait(t) = b {
+                    if let Some(seg) = t.path.segments.last() {
+                        return Some(seg.ident.to_string());
+                    }
+                }
+            }
+            None
+        }
+
+        fn from_path(p: &syn::Path, self_ty: &str) -> Option<String> {
+            if let Some(last) = p.segments.last() {
+                if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(t) = arg {
+                            if let Some(name) = from_type(t, self_ty) {
+                                return Some(name);
+                            }
+                        }
+                    }
+                }
+            }
+            p.segments.last().map(|s| {
+                if s.ident == "Self" {
+                    self_ty.to_string()
+                } else {
+                    s.ident.to_string()
+                }
+            })
+        }
+
+        fn from_type(ty: &syn::Type, self_ty: &str) -> Option<String> {
+            match ty {
                 syn::Type::Path(p) => from_path(&p.path, self_ty),
-                syn::Type::Reference(r) => match &*r.elem {
-                    syn::Type::Path(p) => from_path(&p.path, self_ty),
-                    syn::Type::ImplTrait(it) => from_impl_trait(it),
-                    _ => None,
-                },
+                syn::Type::Reference(r) => from_type(&*r.elem, self_ty),
                 syn::Type::ImplTrait(it) => from_impl_trait(it),
+                syn::Type::TraitObject(obj) => from_trait_object(obj),
+                syn::Type::Paren(p) => from_type(&p.elem, self_ty),
+                syn::Type::Group(g) => from_type(&g.elem, self_ty),
+                syn::Type::Ptr(p) => from_type(&*p.elem, self_ty),
                 _ => None,
-            },
+            }
+        }
+
+        match output {
+            syn::ReturnType::Type(_, ty) => from_type(ty, self_ty),
             _ => None,
         }
     }
@@ -626,16 +652,16 @@ impl<'a> DetailVisitor<'a> {
             }
             syn::Expr::MethodCall(mc) => {
                 if let Some(receiver_ty) = self.infer_expr_type(&mc.receiver) {
-                    if let Some(ret) =
-                        self.methods.get(&(receiver_ty.clone(), mc.method.to_string()))
+                    if let Some(ret) = self
+                        .methods
+                        .get(&(receiver_ty.clone(), mc.method.to_string()))
                     {
                         return Some(ret.clone());
                     }
                     if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
                         let mut found = None;
                         for b in bounds {
-                            if let Some(ret) =
-                                self.methods.get(&(b.clone(), mc.method.to_string()))
+                            if let Some(ret) = self.methods.get(&(b.clone(), mc.method.to_string()))
                             {
                                 if found.is_some() {
                                     return None;
@@ -766,14 +792,12 @@ mod tests {
         let a_info = info.get("crate_a").unwrap();
         assert_eq!(a_info.classes.len(), 1);
         assert_eq!(a_info.classes[0].name, "A");
-        assert!(
-            a_info
-                .external_depended_by
-                .get("A")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"B".to_string()))
-                .unwrap_or(false)
-        );
+        assert!(a_info
+            .external_depended_by
+            .get("A")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"B".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -796,22 +820,18 @@ mod tests {
         assert_eq!(a_info.metrics.ca, 1);
         assert_eq!(b_info.metrics.ce, 1);
 
-        assert!(
-            b_info
-                .external_depends_on
-                .get("Bar")
-                .and_then(|m| m.get("crate_a"))
-                .map(|v| v.contains(&"Foo".to_string()))
-                .unwrap_or(false)
-        );
-        assert!(
-            a_info
-                .external_depended_by
-                .get("Foo")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"Bar".to_string()))
-                .unwrap_or(false)
-        );
+        assert!(b_info
+            .external_depends_on
+            .get("Bar")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Foo".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("Foo")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Bar".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -832,22 +852,18 @@ mod tests {
         assert_eq!(b_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
 
-        assert!(
-            b_info
-                .external_depends_on
-                .get("B")
-                .and_then(|m| m.get("crate_a"))
-                .map(|v| v.len() == 1 && v.contains(&"A".to_string()))
-                .unwrap_or(false)
-        );
-        assert!(
-            a_info
-                .external_depended_by
-                .get("A")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.len() == 1 && v.contains(&"B".to_string()))
-                .unwrap_or(false)
-        );
+        assert!(b_info
+            .external_depends_on
+            .get("B")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.len() == 1 && v.contains(&"A".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("A")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.len() == 1 && v.contains(&"B".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -883,22 +899,18 @@ mod tests {
         assert_eq!(b_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
 
-        assert!(
-            b_info
-                .external_depends_on
-                .get("Use")
-                .and_then(|m| m.get("crate_a"))
-                .map(|v| v.contains(&"Dao".to_string()))
-                .unwrap_or(false)
-        );
-        assert!(
-            a_info
-                .external_depended_by
-                .get("Dao")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"Use".to_string()))
-                .unwrap_or(false)
-        );
+        assert!(b_info
+            .external_depends_on
+            .get("Use")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Dao".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("Dao")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -947,21 +959,65 @@ mod tests {
         assert!(b_deps.contains(&"Dao".to_string()));
         assert!(b_deps.contains(&"HaveDao".to_string()));
 
-        assert!(
-            a_info
-                .external_depended_by
-                .get("Dao")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"Use".to_string()))
-                .unwrap_or(false)
-        );
-        assert!(
-            a_info
-                .external_depended_by
-                .get("HaveDao")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"Use".to_string()))
-                .unwrap_or(false)
-        );
+        assert!(a_info
+            .external_depended_by
+            .get("Dao")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("HaveDao")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn dyn_trait_return() {
+        let src_a = r#"
+            pub trait Dao { fn delete(&self); }
+            pub trait HaveDao { fn dao(&self) -> Box<dyn Dao>; }
+        "#;
+        let src_b = r#"
+            use crate_a::{Dao, HaveDao};
+            pub struct Use<D: HaveDao> { inner: D }
+            impl<D: HaveDao> Use<D> {
+                pub fn run(&self) {
+                    self.inner.dao().delete();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 2);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        let b_deps = b_info
+            .external_depends_on
+            .get("Use")
+            .and_then(|m| m.get("crate_a"))
+            .cloned()
+            .unwrap_or_default();
+        assert!(b_deps.contains(&"Dao".to_string()));
+        assert!(b_deps.contains(&"HaveDao".to_string()));
+
+        assert!(a_info
+            .external_depended_by
+            .get("Dao")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
     }
 }
