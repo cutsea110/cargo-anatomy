@@ -3,6 +3,18 @@ use env_logger;
 use log::info;
 use serde::Serialize;
 
+fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
+    for target in &pkg.targets {
+        if target.kind.iter().any(|k| k == "lib") {
+            return target.name.clone();
+        }
+    }
+    pkg.targets
+        .get(0)
+        .map(|t| t.name.clone())
+        .unwrap_or_else(|| pkg.name.replace('-', "_"))
+}
+
 #[derive(Serialize)]
 struct Output {
     crate_name: String,
@@ -24,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for id in &metadata.workspace_members {
         let package = &metadata[id];
         let files = parse_package(package)?;
-        crates.push((package.name.clone(), files));
+        crates.push((crate_target_name(package), files));
     }
 
     if show_all {
