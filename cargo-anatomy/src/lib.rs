@@ -308,6 +308,11 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
         crate_abstract.insert(name.clone(), abstract_count);
     }
 
+    let mut workspace_crates: HashSet<String> = HashSet::new();
+    for (name, _) in crates {
+        workspace_crates.insert(name.clone());
+    }
+
     let mut internal_refs: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
     let mut external_refs: HashMap<String, HashMap<String, HashMap<String, HashSet<String>>>> =
         HashMap::new();
@@ -318,6 +323,9 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
             current: None,
             defined,
             type_map: &type_map,
+            crate_name: name,
+            workspace_crates: &workspace_crates,
+            imports: HashMap::new(),
             internal: HashMap::new(),
             external: HashMap::new(),
             methods: &method_map,
@@ -497,6 +505,9 @@ struct DetailVisitor<'a> {
     current: Option<String>,
     defined: &'a HashMap<String, ClassKind>,
     type_map: &'a HashMap<String, String>,
+    crate_name: &'a str,
+    workspace_crates: &'a HashSet<String>,
+    imports: HashMap<String, Option<String>>,
     internal: HashMap<String, HashSet<String>>, // from -> to
     external: HashMap<String, HashMap<String, HashSet<String>>>, // from -> crate -> types
     methods: &'a HashMap<(String, String), String>,
@@ -542,24 +553,53 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         }
         syn::visit::visit_item_impl(self, i);
     }
+    fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
+        fn handle(
+            tree: &syn::UseTree,
+            first: Option<String>,
+            ws: &HashSet<String>,
+            map: &mut HashMap<String, Option<String>>,
+        ) {
+            match tree {
+                syn::UseTree::Path(p) => {
+                    let root = first.clone().unwrap_or_else(|| p.ident.to_string());
+                    handle(&p.tree, Some(root), ws, map);
+                }
+                syn::UseTree::Name(n) => {
+                    if let Some(r) = &first {
+                        if ws.contains(r) {
+                            map.insert(n.ident.to_string(), Some(r.clone()));
+                        } else {
+                            map.insert(n.ident.to_string(), None);
+                        }
+                    }
+                }
+                syn::UseTree::Rename(rn) => {
+                    if let Some(r) = &first {
+                        if ws.contains(r) {
+                            map.insert(rn.rename.to_string(), Some(r.clone()));
+                        } else {
+                            map.insert(rn.rename.to_string(), None);
+                        }
+                    }
+                }
+                syn::UseTree::Group(g) => {
+                    for t in &g.items {
+                        handle(t, first.clone(), ws, map);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        handle(&i.tree, None, self.workspace_crates, &mut self.imports);
+        syn::visit::visit_item_use(self, i);
+    }
     fn visit_path(&mut self, node: &'ast syn::Path) {
         if let Some(seg) = node.segments.last() {
             let name = seg.ident.to_string();
-            if let Some(current) = &self.current {
-                if self.defined.contains_key(&name) {
-                    self.internal
-                        .entry(current.clone())
-                        .or_default()
-                        .insert(name.clone());
-                } else if let Some(owner) = self.type_map.get(&name) {
-                    self.external
-                        .entry(current.clone())
-                        .or_default()
-                        .entry(owner.clone())
-                        .or_default()
-                        .insert(name.clone());
-                }
-            }
+            let root = self.path_root(node);
+            self.record_use(name, root);
         }
         syn::visit::visit_path(self, node);
     }
@@ -569,68 +609,97 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             if p.path.segments.len() >= 2 {
                 let func = p.path.segments.last().unwrap().ident.to_string();
                 let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
-                if let Some(current) = &self.current {
-                    if self.defined.contains_key(&ty) {
-                        self.internal
-                            .entry(current.clone())
-                            .or_default()
-                            .insert(ty.clone());
-                    } else if let Some(owner) = self.type_map.get(&ty) {
-                        self.external
-                            .entry(current.clone())
-                            .or_default()
-                            .entry(owner.clone())
-                            .or_default()
-                            .insert(ty.clone());
-                    }
-                }
+                let root = self.path_root(&p.path);
+                self.record_use(ty.clone(), root.clone());
                 let _ = self.methods.get(&(ty, func));
             } else if let Some(seg) = p.path.segments.last() {
                 let name = seg.ident.to_string();
-                if let Some(current) = &self.current {
-                    if self.defined.contains_key(&name) {
-                        self.internal
-                            .entry(current.clone())
-                            .or_default()
-                            .insert(name.clone());
-                    } else if let Some(owner) = self.type_map.get(&name) {
-                        self.external
-                            .entry(current.clone())
-                            .or_default()
-                            .entry(owner.clone())
-                            .or_default()
-                            .insert(name.clone());
-                    }
-                }
+                let root = self.path_root(&p.path);
+                self.record_use(name, root);
             }
         }
         syn::visit::visit_expr_call(self, node);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-        if let Some(current) = &self.current {
-            if let Some(receiver_ty) = self.infer_expr_type(&node.receiver) {
-                if self.defined.contains_key(&receiver_ty) {
-                    self.internal
-                        .entry(current.clone())
-                        .or_default()
-                        .insert(receiver_ty.clone());
-                } else if let Some(owner) = self.type_map.get(&receiver_ty) {
-                    self.external
-                        .entry(current.clone())
-                        .or_default()
-                        .entry(owner.clone())
-                        .or_default()
-                        .insert(receiver_ty.clone());
-                }
-            }
+        if let Some((receiver_ty, root)) = self.infer_expr_type(&node.receiver) {
+            self.record_use(receiver_ty, root);
         }
         syn::visit::visit_expr_method_call(self, node);
     }
 }
 
 impl<'a> DetailVisitor<'a> {
-    fn infer_expr_type(&self, expr: &syn::Expr) -> Option<String> {
+    fn path_root(&self, path: &syn::Path) -> Option<String> {
+        if let Some(first) = path.segments.first() {
+            let ident = first.ident.to_string();
+            match ident.as_str() {
+                "crate" | "self" | "super" => Some(self.crate_name.to_string()),
+                _ => {
+                    if self.workspace_crates.contains(&ident) {
+                        Some(ident)
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn record_use(&mut self, name: String, root: Option<String>) {
+        if let Some(current) = &self.current {
+            if name == *current {
+                return;
+            }
+            match root {
+                Some(ref r) if r == self.crate_name => {
+                    if self.defined.contains_key(&name) {
+                        self.internal
+                            .entry(current.clone())
+                            .or_default()
+                            .insert(name);
+                    }
+                }
+                Some(ref r) => {
+                    if self.workspace_crates.contains(r) {
+                        if let Some(owner) = self.type_map.get(&name) {
+                            if owner == r {
+                                self.external
+                                    .entry(current.clone())
+                                    .or_default()
+                                    .entry(owner.clone())
+                                    .or_default()
+                                    .insert(name);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    if self.defined.contains_key(&name) {
+                        self.internal
+                            .entry(current.clone())
+                            .or_default()
+                            .insert(name);
+                    } else if let Some(import_root) = self.imports.get(&name).cloned().flatten() {
+                        if let Some(owner) = self.type_map.get(&name) {
+                            if &import_root == owner {
+                                self.external
+                                    .entry(current.clone())
+                                    .or_default()
+                                    .entry(owner.clone())
+                                    .or_default()
+                                    .insert(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn infer_expr_type(&self, expr: &syn::Expr) -> Option<(String, Option<String>)> {
         match expr {
             syn::Expr::Call(call) => {
                 if let syn::Expr::Path(p) = &*call.func {
@@ -638,25 +707,27 @@ impl<'a> DetailVisitor<'a> {
                         let func = p.path.segments.last().unwrap().ident.to_string();
                         let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
                         if let Some(ret) = self.methods.get(&(ty.clone(), func.clone())) {
-                            return Some(ret.clone());
+                            let root = self.path_root(&p.path);
+                            return Some((ret.clone(), root));
                         }
                     }
                     if let Some(seg) = p.path.segments.last() {
                         let name = seg.ident.to_string();
                         if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
-                            return Some(name);
+                            let root = self.path_root(&p.path);
+                            return Some((name, root));
                         }
                     }
                 }
                 None
             }
             syn::Expr::MethodCall(mc) => {
-                if let Some(receiver_ty) = self.infer_expr_type(&mc.receiver) {
+                if let Some((receiver_ty, root)) = self.infer_expr_type(&mc.receiver) {
                     if let Some(ret) = self
                         .methods
                         .get(&(receiver_ty.clone(), mc.method.to_string()))
                     {
-                        return Some(ret.clone());
+                        return Some((ret.clone(), root));
                     }
                     if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
                         let mut found = None;
@@ -670,10 +741,10 @@ impl<'a> DetailVisitor<'a> {
                             }
                         }
                         if let Some(ret) = found {
-                            return Some(ret);
+                            return Some((ret, None));
                         }
                     }
-                    return Some(receiver_ty);
+                    return Some((receiver_ty, root));
                 }
 
                 // Try to infer from a uniquely named method when receiver type is
@@ -690,16 +761,20 @@ impl<'a> DetailVisitor<'a> {
                         ret = Some(r.clone());
                     }
                 }
-                ret
+                ret.map(|r| (r, None))
             }
             syn::Expr::Path(p) => {
                 if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
-                    return self.current.clone();
+                    return self
+                        .current
+                        .as_ref()
+                        .map(|c| (c.clone(), Some(self.crate_name.to_string())));
                 }
                 if let Some(seg) = p.path.segments.last() {
                     let name = seg.ident.to_string();
                     if self.defined.contains_key(&name) || self.type_map.contains_key(&name) {
-                        return Some(name);
+                        let root = self.path_root(&p.path);
+                        return Some((name, root));
                     }
                 }
                 None
@@ -1019,5 +1094,27 @@ mod tests {
             .and_then(|m| m.get("crate_b"))
             .map(|v| v.contains(&"Use".to_string()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn ignore_non_workspace_crate() {
+        let src_a = "pub struct Tx;";
+        let src_b = "use tx_rs::Tx; pub struct Use { t: Tx }";
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 0);
+        assert_eq!(a_info.metrics.ca, 0);
+        assert!(b_info.external_depends_on.is_empty());
+        assert!(a_info.external_depended_by.is_empty());
     }
 }
