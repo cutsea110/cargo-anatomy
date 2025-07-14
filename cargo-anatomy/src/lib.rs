@@ -659,13 +659,32 @@ mod tests {
             ("crate_a".to_string(), vec![file_a.clone()]),
             ("crate_b".to_string(), vec![file_b.clone()]),
         ];
-        let metrics = analyze_workspace(&crates);
-        let metrics_a = metrics.get("crate_a").unwrap();
-        let metrics_b = metrics.get("crate_b").unwrap();
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(metrics_a.ca, 1);
-        assert_eq!(metrics_a.ce, 0);
-        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert_eq!(a_info.metrics.ce, 0);
+        assert_eq!(b_info.metrics.ce, 1);
+
+        assert_eq!(
+            b_info
+                .external_depends_on
+                .get("B")
+                .and_then(|m| m.get("crate_a"))
+                .map(|v| v.contains(&"A".to_string()))
+                .unwrap_or(false),
+            true
+        );
+        assert_eq!(
+            a_info
+                .external_depended_by
+                .get("A")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.contains(&"B".to_string()))
+                .unwrap_or(false),
+            true
+        );
     }
 
     #[test]
@@ -706,12 +725,29 @@ mod tests {
             ("crate_b".to_string(), vec![file_b.clone()]),
         ];
 
-        let metrics = analyze_workspace(&crates);
-        let metrics_a = metrics.get("crate_a").unwrap();
-        let metrics_b = metrics.get("crate_b").unwrap();
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(metrics_a.ca, 1);
-        assert_eq!(metrics_b.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert_eq!(b_info.metrics.ce, 1);
+
+        assert!(
+            b_info
+                .external_depends_on
+                .get("Bar")
+                .and_then(|m| m.get("crate_a"))
+                .map(|v| v.contains(&"Foo".to_string()))
+                .unwrap_or(false)
+        );
+        assert!(
+            a_info
+                .external_depended_by
+                .get("Foo")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.contains(&"Bar".to_string()))
+                .unwrap_or(false)
+        );
     }
 
     #[test]
@@ -725,12 +761,29 @@ mod tests {
             ("crate_a".to_string(), vec![file_a.clone()]),
             ("crate_b".to_string(), vec![file_b.clone()]),
         ];
-        let metrics = analyze_workspace(&crates);
-        let metrics_a = metrics.get("crate_a").unwrap();
-        let metrics_b = metrics.get("crate_b").unwrap();
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(metrics_b.ce, 1);
-        assert_eq!(metrics_a.ca, 1);
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(
+            b_info
+                .external_depends_on
+                .get("B")
+                .and_then(|m| m.get("crate_a"))
+                .map(|v| v.len() == 1 && v.contains(&"A".to_string()))
+                .unwrap_or(false)
+        );
+        assert!(
+            a_info
+                .external_depended_by
+                .get("A")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.len() == 1 && v.contains(&"B".to_string()))
+                .unwrap_or(false)
+        );
     }
 
     #[test]
@@ -759,12 +812,29 @@ mod tests {
             ("crate_b".to_string(), vec![file_b.clone()]),
         ];
 
-        let metrics = analyze_workspace(&crates);
-        let metrics_a = metrics.get("crate_a").unwrap();
-        let metrics_b = metrics.get("crate_b").unwrap();
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(metrics_b.ce, 1);
-        assert_eq!(metrics_a.ca, 1);
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(
+            b_info
+                .external_depends_on
+                .get("Use")
+                .and_then(|m| m.get("crate_a"))
+                .map(|v| v.contains(&"Dao".to_string()))
+                .unwrap_or(false)
+        );
+        assert!(
+            a_info
+                .external_depended_by
+                .get("Dao")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.contains(&"Use".to_string()))
+                .unwrap_or(false)
+        );
     }
 
     #[test]
@@ -796,12 +866,38 @@ mod tests {
             ("crate_b".to_string(), vec![file_b.clone()]),
         ];
 
-        let metrics = analyze_workspace(&crates);
-        let metrics_a = metrics.get("crate_a").unwrap();
-        let metrics_b = metrics.get("crate_b").unwrap();
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(metrics_b.ce, 2);
-        assert_eq!(metrics_b.ca, 0);
-        assert_eq!(metrics_a.ca, 1);
+        assert_eq!(b_info.metrics.ce, 2);
+        assert_eq!(b_info.metrics.ca, 0);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        let b_deps = b_info
+            .external_depends_on
+            .get("Use")
+            .and_then(|m| m.get("crate_a"))
+            .cloned()
+            .unwrap_or_default();
+        assert!(b_deps.contains(&"Dao".to_string()));
+        assert!(b_deps.contains(&"HaveDao".to_string()));
+
+        assert!(
+            a_info
+                .external_depended_by
+                .get("Dao")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.contains(&"Use".to_string()))
+                .unwrap_or(false)
+        );
+        assert!(
+            a_info
+                .external_depended_by
+                .get("HaveDao")
+                .and_then(|m| m.get("crate_b"))
+                .map(|v| v.contains(&"Use".to_string()))
+                .unwrap_or(false)
+        );
     }
 }
