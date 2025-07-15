@@ -18,11 +18,20 @@ fn print_help_to(mut w: impl Write) -> io::Result<()> {
     writeln!(w, "  N  - number of classes")?;
     writeln!(w, "  R  - number of internal class relationships")?;
     writeln!(w, "  H  - relational cohesion: (R + 1)/N")?;
-    writeln!(w, "  Ca - afferent coupling: external classes that depend on this crate")?;
-    writeln!(w, "  Ce - efferent coupling: classes in this crate depending on other workspace crates")?;
+    writeln!(
+        w,
+        "  Ca - afferent coupling: external classes that depend on this crate"
+    )?;
+    writeln!(
+        w,
+        "  Ce - efferent coupling: classes in this crate depending on other workspace crates"
+    )?;
     writeln!(w, "  A  - abstraction: traits / N")?;
     writeln!(w, "  I  - instability: Ce / (Ce + Ca)")?;
-    writeln!(w, "  D  - distance from main sequence: |A + I - 1| / sqrt(2)")?;
+    writeln!(
+        w,
+        "  D  - distance from main sequence: |A + I - 1| / sqrt(2)"
+    )?;
     writeln!(w, "  D' - normalized distance: |A + I - 1|")?;
     Ok(())
 }
@@ -50,7 +59,10 @@ struct Output {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_default_env()
+        .format_source_path(true)
+        .format_line_number(true)
+        .init();
     let args: Vec<String> = std::env::args().collect();
 
     let mut opts = Options::new();
