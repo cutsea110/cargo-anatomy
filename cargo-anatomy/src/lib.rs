@@ -60,14 +60,8 @@ pub struct CrateDetail {
 }
 
 pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
-    let mut defined = HashMap::new();
-    let mut abstract_count = 0usize;
-
-    for file in files {
-        if has_test_attr(&file.attrs) {
-            continue;
-        }
-        for item in &file.items {
+    fn visit_items(items: &[syn::Item], defined: &mut HashMap<String, ClassKind>, abstract_count: &mut usize) {
+        for item in items {
             match item {
                 syn::Item::Struct(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::Struct);
@@ -77,14 +71,29 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
                 }
                 syn::Item::Trait(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::Trait);
-                    abstract_count += 1;
+                    *abstract_count += 1;
                 }
                 syn::Item::Type(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::TypeAlias);
                 }
+                syn::Item::Mod(m) if !has_test_attr(&m.attrs) => {
+                    if let Some((_, items)) = &m.content {
+                        visit_items(items, defined, abstract_count);
+                    }
+                }
                 _ => {}
             }
         }
+    }
+
+    let mut defined = HashMap::new();
+    let mut abstract_count = 0usize;
+
+    for file in files {
+        if has_test_attr(&file.attrs) {
+            continue;
+        }
+        visit_items(&file.items, &mut defined, &mut abstract_count);
     }
     (defined, abstract_count)
 }
@@ -1341,5 +1350,60 @@ mod tests {
             .and_then(|m| m.get("crate_b"))
             .map(|v| v.contains(&"main".to_string()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn module_metrics() {
+        let root = r#"
+            mod foo;
+            pub mod bar;
+
+            pub struct Root {
+                f: foo::Foo,
+                b: bar::Bar,
+            }
+        "#;
+        let foo = "pub struct Foo;";
+        let bar = "pub struct Bar;";
+
+        let file_root: syn::File = syn::parse_str(root).unwrap();
+        let file_foo: syn::File = syn::parse_str(foo).unwrap();
+        let file_bar: syn::File = syn::parse_str(bar).unwrap();
+
+        let defs = collect_defined(&[file_root.clone(), file_foo.clone(), file_bar.clone()]);
+        let workspace: HashSet<String> = defs.0.keys().cloned().collect();
+        let metrics = analyze_files(&[file_root, file_foo, file_bar], &workspace);
+
+        assert_eq!(metrics.n, 3);
+        assert_eq!(metrics.r, 2);
+        assert_eq!(metrics.ce, 0);
+        assert_eq!(metrics.ca, 0);
+    }
+
+    #[test]
+    fn inline_module_metrics() {
+        let src = r#"
+            mod foo {
+                pub struct Foo;
+            }
+            pub mod bar {
+                pub struct Bar;
+            }
+
+            pub struct Root {
+                f: foo::Foo,
+                b: bar::Bar,
+            }
+        "#;
+
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let defs = collect_defined(&[file.clone()]);
+        let workspace: HashSet<String> = defs.0.keys().cloned().collect();
+        let metrics = analyze_files(&[file], &workspace);
+
+        assert_eq!(metrics.n, 3);
+        assert_eq!(metrics.r, 2);
+        assert_eq!(metrics.ce, 0);
+        assert_eq!(metrics.ca, 0);
     }
 }
