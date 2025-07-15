@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let out_str = match format.as_str() {
-            "json" => serde_json::to_string_pretty(&vec)?,
+            "json" => serde_json::to_string(&vec)?,
             "yaml" => serde_yaml::to_string(&vec)?,
             other => {
                 eprintln!("unknown output format: {}", other);
@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let out_str = match format.as_str() {
-            "json" => serde_json::to_string_pretty(&out)?,
+            "json" => serde_json::to_string(&out)?,
             "yaml" => serde_yaml::to_string(&out)?,
             other => {
                 eprintln!("unknown output format: {}", other);
