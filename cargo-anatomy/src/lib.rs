@@ -28,6 +28,7 @@ pub enum ClassKind {
     Enum,
     Trait,
     TypeAlias,
+    Macro,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -75,6 +76,11 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
                 }
                 syn::Item::Type(item) if !has_test_attr(&item.attrs) => {
                     defined.insert(item.ident.to_string(), ClassKind::TypeAlias);
+                }
+                syn::Item::Macro(item) if !has_test_attr(&item.attrs) => {
+                    if let Some(id) = &item.ident {
+                        defined.insert(id.to_string(), ClassKind::Macro);
+                    }
                 }
                 syn::Item::Mod(m) if !has_test_attr(&m.attrs) => {
                     if let Some((_, items)) = &m.content {
@@ -718,6 +724,26 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             }
         }
         syn::visit::visit_expr_call(self, node);
+    }
+
+    fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
+        if let Some(seg) = node.mac.path.segments.last() {
+            let name = seg.ident.to_string();
+            let root = self.path_root(&node.mac.path);
+            self.record_use(name, root);
+        }
+        syn::visit::visit_expr_macro(self, node);
+    }
+
+    fn visit_item_macro(&mut self, i: &'ast syn::ItemMacro) {
+        if i.ident.is_none() {
+            if let Some(seg) = i.mac.path.segments.last() {
+                let name = seg.ident.to_string();
+                let root = self.path_root(&i.mac.path);
+                self.record_use(name, root);
+            }
+        }
+        syn::visit::visit_item_macro(self, i);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
@@ -1405,5 +1431,51 @@ mod tests {
         assert_eq!(metrics.r, 2);
         assert_eq!(metrics.ce, 0);
         assert_eq!(metrics.ca, 0);
+    }
+
+    #[test]
+    fn macro_dependencies() {
+        let src_a = r#"
+            #[macro_export]
+            macro_rules! my_macro {
+                () => {};
+            }
+        "#;
+        let src_b = r#"
+            pub struct Use;
+            impl Use {
+                pub fn run() {
+                    crate_a::my_macro!();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(b_info
+            .external_depends_on
+            .get("Use")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"my_macro".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("my_macro")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
     }
 }
