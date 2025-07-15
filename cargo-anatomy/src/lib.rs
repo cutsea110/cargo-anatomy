@@ -230,24 +230,39 @@ pub fn parse_package(
 ) -> Result<Vec<File>, Box<dyn std::error::Error>> {
     info!("reading crate {}", package.name);
     let manifest_dir = package.manifest_path.parent().unwrap();
-    let src = manifest_dir.join("src");
-    let mut files = Vec::new();
-    for entry in WalkDir::new(src) {
-        let entry = entry?;
-        if entry.file_type().is_file()
-            && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-        {
-            if entry
-                .path()
-                .components()
-                .any(|c| c.as_os_str() == "tests")
-            {
-                continue;
+
+    let mut dirs = HashSet::new();
+    for target in &package.targets {
+        if target.kind.iter().any(|k| k == "lib" || k == "bin") {
+            let src_path = std::path::Path::new(&target.src_path);
+            if let Some(parent) = src_path.parent() {
+                dirs.insert(parent.to_path_buf());
             }
-            debug!("parsing {}", entry.path().display());
-            let content = fs::read_to_string(entry.path())?;
-            let file = syn::parse_file(&content)?;
-            files.push(file);
+        }
+    }
+    if dirs.is_empty() {
+        dirs.insert(manifest_dir.join("src").into());
+    }
+
+    let mut files = Vec::new();
+    for dir in dirs {
+        for entry in WalkDir::new(dir) {
+            let entry = entry?;
+            if entry.file_type().is_file()
+                && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
+            {
+                if entry
+                    .path()
+                    .components()
+                    .any(|c| c.as_os_str() == "tests")
+                {
+                    continue;
+                }
+                debug!("parsing {}", entry.path().display());
+                let content = fs::read_to_string(entry.path())?;
+                let file = syn::parse_file(&content)?;
+                files.push(file);
+            }
         }
     }
     Ok(files)
