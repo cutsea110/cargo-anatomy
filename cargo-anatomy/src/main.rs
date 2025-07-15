@@ -5,14 +5,12 @@ use log::info;
 use serde::Serialize;
 use std::io::{self, Write};
 
-fn print_help_to(mut w: impl Write) -> io::Result<()> {
-    writeln!(w, "cargo-anatomy {}", env!("CARGO_PKG_VERSION"))?;
-    writeln!(w, "Usage: cargo anatomy [options]\n")?;
-    writeln!(w, "Options:")?;
-    writeln!(w, "  -a, --all       Show classes and dependency graphs")?;
-    writeln!(w, "  -V, --version   Show version information")?;
-    writeln!(w, "  -o, --output FORMAT  Output format: json or yaml")?;
-    writeln!(w, "  -?, -h, --help  Show this help message")?;
+fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
+    let brief = format!(
+        "cargo-anatomy {}\nUsage: cargo anatomy [options]",
+        env!("CARGO_PKG_VERSION")
+    );
+    write!(w, "{}", opts.usage(&brief))?;
     writeln!(w)?;
     writeln!(w, "Metrics:")?;
     writeln!(w, "  N  - number of classes")?;
@@ -36,8 +34,8 @@ fn print_help_to(mut w: impl Write) -> io::Result<()> {
     Ok(())
 }
 
-fn print_help() {
-    let _ = print_help_to(io::stdout());
+fn print_help(opts: &Options) {
+    let _ = print_help_to(opts, io::stdout());
 }
 
 fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
@@ -76,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(m) => m,
         Err(f) => {
             eprintln!("{}", f.to_string());
-            print_help();
+            print_help(&opts);
             return Ok(());
         }
     };
@@ -87,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if matches.opt_present("?") || matches.opt_present("h") || matches.opt_present("help") {
-        print_help();
+        print_help(&opts);
         return Ok(());
     }
 
