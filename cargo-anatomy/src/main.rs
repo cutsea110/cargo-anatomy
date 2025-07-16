@@ -1,3 +1,4 @@
+//! CLI entry point for the cargo-anatomy tool.
 use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package};
 use env_logger;
 use getopts::Options;
