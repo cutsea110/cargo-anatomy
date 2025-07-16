@@ -72,3 +72,19 @@ The command outputs metrics for every member crate in compact JSON format by def
 
 Enable `RUST_LOG=info` to see progress logs during analysis.
 
+
+## Docker image
+
+A multi-arch Docker image can be built with:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t cargo-anatomy .
+```
+
+Run the container with:
+
+```bash
+docker run --rm cargo-anatomy -h
+```
+
+The image contains only the compiled `cargo-anatomy` binary and is based on `scratch` for minimal size.
