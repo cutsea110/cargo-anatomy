@@ -45,24 +45,15 @@ fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
         .unwrap_or_else(|| pkg.name.replace('-', "_"))
 }
 
-#[derive(Serialize)]
-struct Output {
-    crate_name: String,
-    metrics: cargo_anatomy::Metrics,
-}
-
 trait IntoOutput: Clone + Serialize {
     type Out: Serialize;
     fn into_output(self, package_name: String) -> Self::Out;
 }
 
 impl IntoOutput for cargo_anatomy::Metrics {
-    type Out = Output;
+    type Out = (String, cargo_anatomy::Metrics);
     fn into_output(self, package_name: String) -> Self::Out {
-        Output {
-            crate_name: package_name,
-            metrics: self,
-        }
+        (package_name, self)
     }
 }
 
