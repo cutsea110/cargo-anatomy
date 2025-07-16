@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: build
-FROM --platform=$BUILDPLATFORM rust:1.75-alpine AS builder
+# Use a recent Rust release to ensure Cargo understands our lock file
+FROM --platform=$BUILDPLATFORM rust:1.87-alpine AS builder
 
 # Install build tools
 RUN apk add --no-cache build-base
@@ -37,7 +38,7 @@ RUN case "$TARGETARCH" in \
     strip /usr/local/bin/cargo-anatomy
 
 # Stage 2: package
-FROM scratch as runtime
+FROM scratch AS runtime
 COPY --from=builder /usr/local/bin/cargo-anatomy /usr/local/bin/
 ENTRYPOINT ["cargo-anatomy"]
 CMD ["-h"]
