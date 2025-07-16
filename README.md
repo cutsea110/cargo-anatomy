@@ -75,7 +75,8 @@ Enable `RUST_LOG=info` to see progress logs during analysis.
 
 ## Docker image
 
-A multi-arch Docker image can be built with:
+A multi-arch Docker image can be built with BuildKit, which will compile the
+binary natively for each target architecture:
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 -t cargo-anatomy .
