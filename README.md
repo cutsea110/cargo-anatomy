@@ -94,7 +94,7 @@ Set `<version>` to the tag for the published image.
 Run the container on your project by mounting the workspace into `/work`:
 
 ```bash
-docker run --rm -v $(pwd):/work cargo-anatomy [ARGS...]
+docker run --rm -v $(pwd):/work <your-registry>/cargo-anatomy:<version> [ARGS...]
 ```
 
 Any arguments after the image name are forwarded to `cargo-anatomy`. The image
