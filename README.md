@@ -3,7 +3,7 @@
 [![Rust CI](https://github.com/cutsea110/cargo-anatomy/actions/workflows/ci.yml/badge.svg)](https://github.com/cutsea110/cargo-anatomy/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/cargo-anatomy.svg)](https://crates.io/crates/cargo-anatomy)
 [![Crates.io Downloads](https://img.shields.io/crates/d/cargo-anatomy.svg?label=Crates.io&logo=rust)](https://crates.io/crates/cargo-anatomy)
-[![Docker Cloud Build Status](https://img.shields.io/docker/pulls/cutsea110/cargo-anatomy?label=ifl&logo=docker)](https://hub.docker.com/repository/docker/cutsea110/cargo-anatomy/general)
+[![Docker Cloud Build Status](https://img.shields.io/docker/pulls/cutsea110/cargo-anatomy?label=cargo-anatomy&logo=docker)](https://hub.docker.com/repository/docker/cutsea110/cargo-anatomy/general)
 
 `cargo-anatomy` analyzes Rust workspaces and calculates metrics inspired by Robert C. Martin's package metrics. Each crate inside the workspace is treated as a package.
 
