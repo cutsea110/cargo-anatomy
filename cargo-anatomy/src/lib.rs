@@ -61,7 +61,11 @@ pub struct CrateDetail {
 }
 
 pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
-    fn visit_items(items: &[syn::Item], defined: &mut HashMap<String, ClassKind>, abstract_count: &mut usize) {
+    fn visit_items(
+        items: &[syn::Item],
+        defined: &mut HashMap<String, ClassKind>,
+        abstract_count: &mut usize,
+    ) {
         for item in items {
             match item {
                 syn::Item::Struct(item) if !has_test_attr(&item.attrs) => {
@@ -266,11 +270,7 @@ pub fn parse_package(
             if entry.file_type().is_file()
                 && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
             {
-                if entry
-                    .path()
-                    .components()
-                    .any(|c| c.as_os_str() == "tests")
-                {
+                if entry.path().components().any(|c| c.as_os_str() == "tests") {
                     continue;
                 }
                 debug!("parsing {}", entry.path().display());
@@ -809,9 +809,7 @@ impl<'a> DetailVisitor<'a> {
                             .entry(current.clone())
                             .or_default()
                             .insert(name);
-                    } else if let Some(import_root) =
-                        self.imports.get(&name).cloned().flatten()
-                    {
+                    } else if let Some(import_root) = self.imports.get(&name).cloned().flatten() {
                         if self
                             .all_defined
                             .get(&import_root)
@@ -845,10 +843,7 @@ impl<'a> DetailVisitor<'a> {
                     if let Some(seg) = p.path.segments.last() {
                         let name = seg.ident.to_string();
                         if self.defined.contains_key(&name)
-                            || self
-                                .all_defined
-                                .values()
-                                .any(|d| d.contains_key(&name))
+                            || self.all_defined.values().any(|d| d.contains_key(&name))
                         {
                             let root = self.path_root(&p.path);
                             return Some((name, root));
@@ -909,10 +904,7 @@ impl<'a> DetailVisitor<'a> {
                 if let Some(seg) = p.path.segments.last() {
                     let name = seg.ident.to_string();
                     if self.defined.contains_key(&name)
-                        || self
-                            .all_defined
-                            .values()
-                            .any(|d| d.contains_key(&name))
+                        || self.all_defined.values().any(|d| d.contains_key(&name))
                     {
                         let root = self.path_root(&p.path);
                         return Some((name, root));
