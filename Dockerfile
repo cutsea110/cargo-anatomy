@@ -40,7 +40,7 @@ RUN case "$TARGETARCH" in \
     && strip /usr/local/bin/cargo-anatomy
 
 # Stage 2: package
-FROM scratch AS runtime
+FROM rust:1.87-alpine AS runtime
 COPY --from=builder /usr/local/bin/cargo-anatomy /usr/local/bin/
 # Default work directory for mounted workspaces
 WORKDIR /work

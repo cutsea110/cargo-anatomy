@@ -98,5 +98,6 @@ docker run --rm -v $(pwd):/work cargo-anatomy [ARGS...]
 ```
 
 Any arguments after the image name are forwarded to `cargo-anatomy`. The image
-contains only the compiled binary and uses a minimal `scratch` base.
+includes the Rust toolchain so `cargo metadata` works and is based on Alpine
+Linux.
 
