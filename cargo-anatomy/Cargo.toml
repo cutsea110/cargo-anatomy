@@ -6,6 +6,7 @@ description = "Analyze Rust workspaces and report package metrics"
 license = "MIT"
 repository = "https://github.com/cutsea110/cargo-anatomy"
 readme = "../README.md"
+changelog = "CHANGELOG.md"
 homepage = "https://github.com/cutsea110/cargo-anatomy"
 keywords = ["cargo", "metrics", "analysis", "workspace"]
 categories = ["development-tools", "development-tools::cargo-plugins"]
