@@ -72,7 +72,6 @@ The command outputs metrics for every member crate in compact JSON format by def
 
 Enable `RUST_LOG=info` to see progress logs during analysis.
 
-
 ## Docker image
 
 Build an image for the current architecture and load it into Docker with
@@ -99,3 +98,4 @@ docker run --rm cargo-anatomy -h
 
 The image contains only the compiled `cargo-anatomy` binary and is based on
 `scratch` for minimal size.
+
