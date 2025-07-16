@@ -42,5 +42,7 @@ RUN case "$TARGETARCH" in \
 # Stage 2: package
 FROM scratch AS runtime
 COPY --from=builder /usr/local/bin/cargo-anatomy /usr/local/bin/
-# Run with help by default
-ENTRYPOINT ["cargo-anatomy", "-h"]
+# Use cargo-anatomy as the entrypoint so command line arguments are forwarded
+ENTRYPOINT ["cargo-anatomy"]
+# Print help by default when no additional arguments are provided
+CMD ["-h"]
