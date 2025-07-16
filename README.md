@@ -79,7 +79,7 @@ A multi-arch Docker image can be built with BuildKit, which will compile the
 binary natively for each target architecture:
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t cargo-anatomy .
+docker buildx build --platform linux/amd64,linux/arm64 -t cargo-anatomy --load .
 ```
 
 Run the container with:

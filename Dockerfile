@@ -2,7 +2,7 @@
 
 # Stage 1: build
 # Build natively for the requested architecture so no cross toolchain is needed
-FROM --platform=$TARGETPLATFORM rust:1.87-alpine AS builder
+FROM rust:1.87-alpine AS builder
 
 # Install build tools
 RUN apk add --no-cache build-base
