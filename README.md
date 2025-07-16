@@ -75,11 +75,18 @@ Enable `RUST_LOG=info` to see progress logs during analysis.
 
 ## Docker image
 
-A multi-arch Docker image can be built with BuildKit, which will compile the
-binary natively for each target architecture:
+Build an image for the current architecture and load it into Docker with
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t cargo-anatomy --load .
+docker buildx build --platform <arch> -t cargo-anatomy --load .
+```
+
+Replace `<arch>` with `linux/amd64` on x86_64 machines or `linux/arm64` on
+Arm-based hosts. To publish a multi-platform image, use `--push` instead of
+`--load`:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t <your-registry>/cargo-anatomy --push .
 ```
 
 Run the container with:
@@ -88,4 +95,5 @@ Run the container with:
 docker run --rm cargo-anatomy -h
 ```
 
-The image contains only the compiled `cargo-anatomy` binary and is based on `scratch` for minimal size.
+The image contains only the compiled `cargo-anatomy` binary and is based on
+`scratch` for minimal size.
