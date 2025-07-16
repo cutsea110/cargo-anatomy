@@ -4,6 +4,12 @@
 
 `cargo-anatomy` analyzes Rust workspaces and calculates metrics inspired by Robert C. Martin's package metrics. Each crate inside the workspace is treated as a package.
 
+## Installation
+
+```
+cargo install cargo-anatomy
+```
+
 ## Metrics
 
 - **N** — number of classes in the crate (`struct`, `enum`, `trait` and `type` definitions).
