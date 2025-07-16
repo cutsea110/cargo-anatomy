@@ -51,6 +51,55 @@ struct Output {
     metrics: cargo_anatomy::Metrics,
 }
 
+trait IntoOutput: Clone + Serialize {
+    type Out: Serialize;
+    fn into_output(self, package_name: String) -> Self::Out;
+}
+
+impl IntoOutput for cargo_anatomy::Metrics {
+    type Out = Output;
+    fn into_output(self, package_name: String) -> Self::Out {
+        Output {
+            crate_name: package_name,
+            metrics: self,
+        }
+    }
+}
+
+impl IntoOutput for cargo_anatomy::CrateDetail {
+    type Out = (String, cargo_anatomy::CrateDetail);
+    fn into_output(self, package_name: String) -> Self::Out {
+        (package_name, self)
+    }
+}
+
+fn emit_results<T>(
+    map: std::collections::HashMap<String, T>,
+    name_map: &[(String, String)],
+    format: &str,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    T: IntoOutput,
+    T::Out: Serialize,
+{
+    let mut out = Vec::new();
+    for (crate_name, package_name) in name_map {
+        if let Some(item) = map.get(crate_name) {
+            out.push(item.clone().into_output(package_name.clone()));
+        }
+    }
+    let out_str = match format {
+        "json" => serde_json::to_string(&out)?,
+        "yaml" => serde_yaml::to_string(&out)?,
+        other => {
+            eprintln!("unknown output format: {}", other);
+            return Ok(());
+        }
+    };
+    println!("{}", out_str);
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_default_env()
         .format_source_path(true)
@@ -108,42 +157,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if show_all {
         let map = analyze_workspace_details(&crates);
-        let mut vec = Vec::new();
-        for (crate_name, package_name) in &name_map {
-            if let Some(detail) = map.get(crate_name) {
-                vec.push((package_name.clone(), detail.clone()));
-            }
-        }
-        let out_str = match format.as_str() {
-            "json" => serde_json::to_string(&vec)?,
-            "yaml" => serde_yaml::to_string(&vec)?,
-            other => {
-                eprintln!("unknown output format: {}", other);
-                return Ok(());
-            }
-        };
-        println!("{}", out_str);
+        emit_results(map, &name_map, &format)?;
     } else {
         let metrics_map = analyze_workspace(&crates);
-        let mut out = Vec::new();
-        for (crate_name, package_name) in &name_map {
+        for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
-            if let Some(metrics) = metrics_map.get(crate_name) {
-                out.push(Output {
-                    crate_name: package_name.clone(),
-                    metrics: metrics.clone(),
-                });
-            }
         }
-        let out_str = match format.as_str() {
-            "json" => serde_json::to_string(&out)?,
-            "yaml" => serde_yaml::to_string(&out)?,
-            other => {
-                eprintln!("unknown output format: {}", other);
-                return Ok(());
-            }
-        };
-        println!("{}", out_str);
+        emit_results(metrics_map, &name_map, &format)?;
     }
     Ok(())
 }
