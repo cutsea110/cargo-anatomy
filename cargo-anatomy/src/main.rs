@@ -12,25 +12,20 @@ fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     );
     write!(w, "{}", opts.usage(&brief))?;
     writeln!(w)?;
-    writeln!(w, "Metrics:")?;
-    writeln!(w, "  N  - number of classes")?;
-    writeln!(w, "  R  - number of internal class relationships")?;
-    writeln!(w, "  H  - relational cohesion: (R + 1)/N")?;
-    writeln!(
-        w,
-        "  Ca - afferent coupling: external classes that depend on this crate"
-    )?;
-    writeln!(
-        w,
-        "  Ce - efferent coupling: classes in this crate depending on other workspace crates"
-    )?;
-    writeln!(w, "  A  - abstraction: traits / N")?;
-    writeln!(w, "  I  - instability: Ce / (Ce + Ca)")?;
-    writeln!(
-        w,
-        "  D  - distance from main sequence: |A + I - 1| / sqrt(2)"
-    )?;
-    writeln!(w, "  D' - normalized distance: |A + I - 1|")?;
+
+    let metrics = [
+        "Metrics:",
+        "  N  - number of classes",
+        "  R  - number of internal class relationships",
+        "  H  - relational cohesion: (R + 1)/N",
+        "  Ca - afferent coupling: external classes that depend on this crate",
+        "  Ce - efferent coupling: classes in this crate depending on other workspace crates",
+        "  A  - abstraction: traits / N",
+        "  I  - instability: Ce / (Ce + Ca)",
+        "  D  - distance from main sequence: |A + I - 1| / sqrt(2)",
+        "  D' - normalized distance: |A + I - 1|",
+    ];
+    writeln!(w, "{}", metrics.join("\n"))?;
     Ok(())
 }
 
