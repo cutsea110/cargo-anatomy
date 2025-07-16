@@ -91,12 +91,12 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 ```
 Set `<version>` to the tag for the published image.
 
-Run the container with:
+Run the container on your project by mounting the workspace into `/work`:
 
 ```bash
-docker run --rm cargo-anatomy -h
+docker run --rm -v $(pwd):/work cargo-anatomy [ARGS...]
 ```
 
-The image contains only the compiled `cargo-anatomy` binary and is based on
-`scratch` for minimal size.
+Any arguments after the image name are forwarded to `cargo-anatomy`. The image
+contains only the compiled binary and uses a minimal `scratch` base.
 
