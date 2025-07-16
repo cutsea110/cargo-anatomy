@@ -21,7 +21,9 @@ WORKDIR /app
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY cargo-anatomy/Cargo.toml cargo-anatomy/Cargo.toml
-RUN mkdir -p cargo-anatomy/src && echo 'fn main() {}' > cargo-anatomy/src/main.rs
+# Create a dummy main to build dependencies only
+RUN mkdir -p cargo-anatomy/src \
+    && echo 'fn main() {}' > cargo-anatomy/src/main.rs
 RUN case "$TARGETARCH" in \
         amd64) TARGET=x86_64-unknown-linux-musl ;; \
         arm64) TARGET=aarch64-unknown-linux-musl ;; \
@@ -40,5 +42,5 @@ RUN case "$TARGETARCH" in \
 # Stage 2: package
 FROM scratch AS runtime
 COPY --from=builder /usr/local/bin/cargo-anatomy /usr/local/bin/
-ENTRYPOINT ["cargo-anatomy"]
-CMD ["-h"]
+# Run with help by default
+ENTRYPOINT ["cargo-anatomy", "-h"]
