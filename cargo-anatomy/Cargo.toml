@@ -3,7 +3,7 @@ name = "cargo-anatomy"
 version = "0.1.0"
 edition = "2021"
 description = "Analyze Rust workspaces and report package metrics"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/cutsea110/cargo-anatomy"
 readme = "../README.md"
 homepage = "https://github.com/cutsea110/cargo-anatomy"
@@ -24,3 +24,7 @@ getopts = "0.2"
 [dev-dependencies]
 tempfile = "3"
 assert_cmd = "2"
+
+[[bin]]
+name = "cargo-anatomy"
+path = "src/main.rs"
