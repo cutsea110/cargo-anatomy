@@ -270,6 +270,10 @@ pub fn parse_package(
             if entry.file_type().is_file()
                 && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
             {
+                // Skip integration tests located under `tests/`. Cargo treats files
+                // in this directory as separate crates, so they do not represent
+                // types defined by the package itself.
+                // https://doc.rust-lang.org/cargo/guide/tests.html#integration-tests
                 if entry.path().components().any(|c| c.as_os_str() == "tests") {
                     continue;
                 }
