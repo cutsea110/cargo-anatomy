@@ -1,3 +1,4 @@
+//! Utilities for analyzing Rust crates and computing package metrics.
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
@@ -22,6 +23,7 @@ fn has_test_attr(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Kind of a Rust item defined in a crate.
 #[derive(Debug, Serialize, Clone)]
 pub enum ClassKind {
     Struct,
@@ -30,13 +32,14 @@ pub enum ClassKind {
     TypeAlias,
     Macro,
 }
-
+/// Information about a type defined in a crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct ClassInfo {
     pub name: String,
     pub kind: ClassKind,
 }
 
+/// Metrics describing the coupling and cohesion of a crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct Metrics {
     pub r: usize,
@@ -50,6 +53,7 @@ pub struct Metrics {
     pub d_prime: f64,
 }
 
+/// Detailed analysis results for a single crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct CrateDetail {
     pub metrics: Metrics,
@@ -59,7 +63,7 @@ pub struct CrateDetail {
     pub external_depends_on: HashMap<String, HashMap<String, Vec<String>>>, // type -> crate -> types
     pub external_depended_by: HashMap<String, HashMap<String, Vec<String>>>, // type -> crate -> types
 }
-
+/// Collect definitions from parsed files and count traits.
 pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     fn visit_items(
         items: &[syn::Item],
@@ -107,7 +111,7 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     }
     (defined, abstract_count)
 }
-
+/// Map method names to their return types for each impl or trait.
 pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
     fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
@@ -216,7 +220,7 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
 
     map
 }
-
+/// Collect trait inheritance information for each trait.
 pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     let mut map = HashMap::new();
     for file in files {
@@ -243,7 +247,7 @@ pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     }
     map
 }
-
+/// Parse all Rust source files belonging to the given package.
 pub fn parse_package(
     package: &cargo_metadata::Package,
 ) -> Result<Vec<File>, Box<dyn std::error::Error>> {
@@ -286,7 +290,7 @@ pub fn parse_package(
     }
     Ok(files)
 }
-
+/// Parse and analyze a single package.
 pub fn analyze_package(
     package: &cargo_metadata::Package,
     workspace_types: &HashSet<String>,
@@ -294,7 +298,7 @@ pub fn analyze_package(
     let files = parse_package(package)?;
     Ok(analyze_files(&files, workspace_types))
 }
-
+/// Analyze parsed files to produce package metrics.
 pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metrics {
     debug!("collecting definitions from {} files", files.len());
     let (defined, abstract_count) = collect_defined(files);
@@ -359,7 +363,7 @@ pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metr
         .map(|(k, v)| (k, v.metrics))
         .collect()
 }
-
+/// Return metrics and dependency graphs for multiple crates.
 pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<String, CrateDetail> {
     debug!("analysing {} crates", crates.len());
 
