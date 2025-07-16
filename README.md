@@ -86,8 +86,10 @@ Arm-based hosts. To publish a multi-platform image, use `--push` instead of
 `--load`:
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t <your-registry>/cargo-anatomy --push .
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -t <your-registry>/cargo-anatomy:<version> --push .
 ```
+Set `<version>` to the tag for the published image.
 
 Run the container with:
 
