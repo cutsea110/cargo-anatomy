@@ -98,6 +98,7 @@ docker run --rm -v $(pwd):/work <your-registry>/cargo-anatomy:<version> [ARGS...
 ```
 
 Any arguments after the image name are forwarded to `cargo-anatomy`. The image
-includes the Rust toolchain so `cargo metadata` works and is based on Alpine
-Linux.
+includes the toolchain `cargo` binary and sets the `CARGO` environment variable
+to that path, so `cargo metadata` works without `rustup`. The runtime uses a
+distroless base for a smaller footprint.
 
