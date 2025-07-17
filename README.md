@@ -1,4 +1,7 @@
 # cargo-anatomy
+<p align="center">
+  <img src="logo.svg" alt="Cargo Anatomy Logo" width="200" />
+</p>
 
 [![Rust CI](https://github.com/cutsea110/cargo-anatomy/actions/workflows/ci.yml/badge.svg)](https://github.com/cutsea110/cargo-anatomy/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/cargo-anatomy.svg)](https://crates.io/crates/cargo-anatomy)
