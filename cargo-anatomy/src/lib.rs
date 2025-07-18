@@ -60,11 +60,108 @@ pub struct Metrics {
     pub d_prime: f64,
 }
 
+/// Qualitative labels for abstraction.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum AbstractionEval {
+    Abstract,
+    Mixed,
+    Concrete,
+}
+
+/// Qualitative labels for cohesion.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum CohesionEval {
+    High,
+    Low,
+}
+
+/// Qualitative labels for stability.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum StabilityEval {
+    Stable,
+    Moderate,
+    Unstable,
+}
+
+/// Qualitative labels for normalized distance.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum DistanceEval {
+    Good,
+    Balanced,
+    Painful,
+    Useless,
+}
+
+/// Labels evaluating package metrics.
+#[derive(Debug, Serialize, Clone)]
+pub struct Evaluation {
+    pub a: AbstractionEval,
+    pub h: CohesionEval,
+    pub i: StabilityEval,
+    pub d_prime: DistanceEval,
+}
+
+/// Metrics accompanied by evaluation labels used for output.
+#[derive(Debug, Serialize, Clone)]
+pub struct MetricsResult {
+    pub metrics: Metrics,
+    pub evaluation: Evaluation,
+}
+
+/// Assign qualitative labels to metrics.
+pub fn evaluate_metrics(m: &Metrics) -> Evaluation {
+    let a_label = if m.a >= 0.7 {
+        AbstractionEval::Abstract
+    } else if m.a <= 0.3 {
+        AbstractionEval::Concrete
+    } else {
+        AbstractionEval::Mixed
+    };
+
+    let h_label = if m.h > 1.0 {
+        CohesionEval::High
+    } else {
+        CohesionEval::Low
+    };
+
+    let i_label = if m.i >= 0.7 {
+        StabilityEval::Unstable
+    } else if m.i <= 0.3 {
+        StabilityEval::Stable
+    } else {
+        StabilityEval::Moderate
+    };
+
+    let d_label = if m.d_prime <= 0.4 {
+        DistanceEval::Good
+    } else if m.d_prime >= 0.6 {
+        if m.a + m.i - 1.0 >= 0.0 {
+            DistanceEval::Useless
+        } else {
+            DistanceEval::Painful
+        }
+    } else {
+        DistanceEval::Balanced
+    };
+
+    Evaluation {
+        a: a_label,
+        h: h_label,
+        i: i_label,
+        d_prime: d_label,
+    }
+}
+
 /// Detailed analysis results for a single crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct CrateDetail {
     pub kind: CrateKind,
     pub metrics: Metrics,
+    pub evaluation: Evaluation,
     pub classes: Vec<ClassInfo>,
     pub internal_depends_on: HashMap<String, Vec<String>>, // type -> types it depends on
     pub internal_depended_by: HashMap<String, Vec<String>>, // type -> types depending on it
@@ -535,21 +632,22 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
                 .collect::<HashMap<_, _>>()
         };
 
-        result.insert(
-            name.clone(),
+        result.insert(name.clone(), {
+            let metrics = Metrics {
+                r,
+                n,
+                h,
+                ca,
+                ce,
+                a,
+                i,
+                d,
+                d_prime,
+            };
             CrateDetail {
                 kind: CrateKind::Workspace,
-                metrics: Metrics {
-                    r,
-                    n,
-                    h,
-                    ca,
-                    ce,
-                    a,
-                    i,
-                    d,
-                    d_prime,
-                },
+                metrics: metrics.clone(),
+                evaluation: evaluate_metrics(&metrics),
                 classes,
                 internal_depends_on: to_vec_map(internal_refs.get(name).unwrap_or(&HashMap::new())),
                 internal_depended_by: to_vec_map(internal_rev.get(name).unwrap_or(&HashMap::new())),
@@ -559,8 +657,8 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
                 external_depended_by: to_vec_nested(
                     external_rev.get(name).unwrap_or(&HashMap::new()),
                 ),
-            },
-        );
+            }
+        });
     }
 
     result
