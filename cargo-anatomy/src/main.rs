@@ -1,10 +1,16 @@
 //! CLI entry point for the cargo-anatomy tool.
-use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package};
+use cargo_anatomy::{
+    analyze_workspace,
+    analyze_workspace_details,
+    parse_package,
+    CrateKind,
+};
 use env_logger;
 use getopts::Options;
 use log::info;
 use serde::Serialize;
 use std::io::{self, Write};
+use std::collections::{HashMap, HashSet};
 
 fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     let brief = format!(
@@ -101,6 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut opts = Options::new();
     opts.optflag("a", "all", "Show classes and dependency graphs");
+    opts.optflag(
+        "x",
+        "include-external",
+        "Include external dependencies in analysis",
+    );
     opts.optflag("V", "version", "Show version information");
     opts.optopt("o", "output", "Output format: json or yaml", "FORMAT");
     opts.optflag("?", "", "Show this help message");
@@ -126,11 +137,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let show_all = matches.opt_present("a") || matches.opt_present("all");
+    let include_external =
+        matches.opt_present("x") || matches.opt_present("include-external");
     let format = matches
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
         .unwrap_or_else(|| "json".to_string());
-    let metadata = cargo_metadata::MetadataCommand::new().no_deps().exec()?;
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+    if !include_external {
+        cmd.no_deps();
+    }
+    let metadata = cmd.exec()?;
     info!(
         "found {} workspace members",
         metadata.workspace_members.len()
@@ -139,16 +156,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse all crates first
     let mut crates = Vec::new();
     let mut name_map = Vec::new();
-    for id in &metadata.workspace_members {
-        let package = &metadata[id];
-        let files = parse_package(package)?;
+    let mut kind_map = HashMap::new();
+    let mut seen = HashSet::new();
+
+    let packages: Vec<&cargo_metadata::Package> = if include_external {
+        metadata.packages.iter().collect()
+    } else {
+        metadata
+            .workspace_members
+            .iter()
+            .map(|id| &metadata[id])
+            .collect()
+    };
+
+    for package in packages {
         let crate_name = crate_target_name(package);
+        if !seen.insert(crate_name.clone()) {
+            continue;
+        }
+        let files = parse_package(package)?;
         name_map.push((crate_name.clone(), package.name.clone()));
+        let kind = if metadata.workspace_members.contains(&package.id) {
+            CrateKind::Workspace
+        } else {
+            CrateKind::External
+        };
+        kind_map.insert(crate_name.clone(), kind);
         crates.push((crate_name, files));
     }
 
     if show_all {
-        let map = analyze_workspace_details(&crates);
+        let mut map = analyze_workspace_details(&crates);
+        for (name, detail) in map.iter_mut() {
+            if let Some(k) = kind_map.get(name) {
+                detail.kind = *k;
+            }
+        }
         emit_results(map, &name_map, &format)?;
     } else {
         let metrics_map = analyze_workspace(&crates);

@@ -39,6 +39,13 @@ pub struct ClassInfo {
     pub kind: ClassKind,
 }
 
+/// Whether a crate is part of the workspace or an external dependency.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+pub enum CrateKind {
+    Workspace,
+    External,
+}
+
 /// Metrics describing the coupling and cohesion of a crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct Metrics {
@@ -56,6 +63,7 @@ pub struct Metrics {
 /// Detailed analysis results for a single crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct CrateDetail {
+    pub kind: CrateKind,
     pub metrics: Metrics,
     pub classes: Vec<ClassInfo>,
     pub internal_depends_on: HashMap<String, Vec<String>>, // type -> types it depends on
@@ -530,6 +538,7 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
         result.insert(
             name.clone(),
             CrateDetail {
+                kind: CrateKind::Workspace,
                 metrics: Metrics {
                     r,
                     n,
