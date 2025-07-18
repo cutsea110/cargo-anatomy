@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     opts.optflag(
         "x",
         "include-external",
-        "Include external dependencies in analysis",
+        "Include external dependencies in analysis (slower)",
     );
     opts.optflag("V", "version", "Show version information");
     opts.optopt("o", "output", "Output format: json or yaml", "FORMAT");

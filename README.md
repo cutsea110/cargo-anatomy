@@ -39,7 +39,7 @@ cargo anatomy
 # Show detailed class and dependency information
 cargo anatomy -a
 
-# Include external dependencies in metrics
+# Include external dependencies in metrics (may be slower)
 cargo anatomy -x
 
 # Display help with metric descriptions
@@ -52,7 +52,7 @@ cargo anatomy -V
 cargo anatomy -o yaml
 ```
 
-The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Each crate in the results includes a `kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output. Example output (`| jq`):
+The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. Each crate in the results includes a `kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output. Example output (`| jq`):
 
 ```json
 {
