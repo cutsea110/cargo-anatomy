@@ -12,3 +12,4 @@ All notable changes to this project will be documented in this file.
 - Output schema documentation with README link.
 - Clarification of `-x` option impact.
 - Project logo.
+

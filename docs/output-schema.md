@@ -25,6 +25,17 @@ used.
 | `d`     | Distance from the main sequence: `|A + I - 1| / sqrt(2)`. |
 | `d_prime` | Normalized distance from the main sequence: `|A + I - 1|`. |
 
+## Evaluation Object
+
+The results also include qualitative labels derived from the metrics:
+
+| Field | Description |
+|-------|-------------|
+| `a` | "abstract", "mixed" or "concrete" depending on the abstraction ratio. |
+| `h` | "high" or "low" relational cohesion. |
+| `i` | "stable", "moderate" or "unstable" based on instability. |
+| `d_prime` | "good", "balanced", "painful" or "useless" depending on the normalized distance. |
+
 ## CrateDetail Object
 
 The detailed result includes additional fields:
@@ -58,7 +69,13 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
       "a": 0.33,
       "i": 1.0,
       "d": 0.24,
-      "d_prime": 0.34
+    "d_prime": 0.34
+    },
+    "evaluation": {
+      "a": "mixed",
+      "h": "low",
+      "i": "unstable",
+      "d_prime": "good"
     },
     "classes": [
       { "name": "Foo", "kind": "Struct" },

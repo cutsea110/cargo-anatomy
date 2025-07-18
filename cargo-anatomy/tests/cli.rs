@@ -144,11 +144,36 @@ fn include_external_crate() {
     assert_eq!(dep["metrics"]["ca"].as_u64().unwrap(), 1);
     assert_eq!(dep["metrics"]["ce"].as_u64().unwrap(), 0);
     assert_eq!(
-        app["external_depends_on"]["App"]["dep"]
-            .as_array()
-            .unwrap()[0]
+        app["external_depends_on"]["App"]["dep"].as_array().unwrap()[0]
             .as_str()
             .unwrap(),
         "Dep"
     );
+}
+
+#[test]
+fn includes_evaluation_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("pkg")).unwrap();
+    std::fs::create_dir(dir.path().join("pkg/src")).unwrap();
+    std::fs::write(
+        dir.path().join("pkg/Cargo.toml"),
+        "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct Foo;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"pkg\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.as_array().unwrap();
+    let entry = &arr[0][1];
+    assert!(entry.get("evaluation").is_some());
+    assert!(entry["evaluation"].get("a").is_some());
 }

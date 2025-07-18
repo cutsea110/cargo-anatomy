@@ -71,6 +71,12 @@ See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main
       "d": 0.24,
       "d_prime": 0.34
     },
+    "evaluation": {
+      "a": "mixed",
+      "h": "low",
+      "i": "unstable",
+      "d_prime": "good"
+    },
     "classes": [
       { "name": "Foo", "kind": "Struct" },
       { "name": "Bar", "kind": "Struct" },

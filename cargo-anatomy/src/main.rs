@@ -1,16 +1,11 @@
 //! CLI entry point for the cargo-anatomy tool.
-use cargo_anatomy::{
-    analyze_workspace,
-    analyze_workspace_details,
-    parse_package,
-    CrateKind,
-};
+use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package, CrateKind};
 use env_logger;
 use getopts::Options;
 use log::info;
 use serde::Serialize;
-use std::io::{self, Write};
 use std::collections::{HashMap, HashSet};
+use std::io::{self, Write};
 
 fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     let brief = format!(
@@ -58,9 +53,16 @@ trait IntoOutput: Clone + Serialize {
 }
 
 impl IntoOutput for cargo_anatomy::Metrics {
-    type Out = (String, cargo_anatomy::Metrics);
+    type Out = (String, cargo_anatomy::MetricsResult);
     fn into_output(self, package_name: String) -> Self::Out {
-        (package_name, self)
+        let eval = cargo_anatomy::evaluate_metrics(&self);
+        (
+            package_name,
+            cargo_anatomy::MetricsResult {
+                metrics: self,
+                evaluation: eval,
+            },
+        )
     }
 }
 
@@ -137,8 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let show_all = matches.opt_present("a") || matches.opt_present("all");
-    let include_external =
-        matches.opt_present("x") || matches.opt_present("include-external");
+    let include_external = matches.opt_present("x") || matches.opt_present("include-external");
     let format = matches
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
