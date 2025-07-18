@@ -64,7 +64,8 @@ fn outputs_yaml() {
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("foo-bar"));
-    assert!(s.contains("- metrics:"));
+    assert!(s.contains("kind: Workspace"));
+    assert!(s.contains("metrics:"));
 }
 
 #[test]
@@ -88,4 +89,66 @@ fn custom_lib_path() {
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("foo"));
+}
+
+#[test]
+fn include_external_crate() {
+    let dir = tempfile::tempdir().unwrap();
+    // external crate outside of workspace
+    let external = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(external.path().join("src")).unwrap();
+    std::fs::write(
+        external.path().join("Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(external.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    std::fs::create_dir(dir.path().join("app")).unwrap();
+    std::fs::create_dir(dir.path().join("app/src")).unwrap();
+    std::fs::write(
+        dir.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
+            external.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("app/src/lib.rs"),
+        "use dep::Dep; pub struct App { d: Dep }\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-x"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item[0].as_str().unwrap();
+        map.insert(pkg, &item[1]);
+    }
+    let app = map.get("app").unwrap();
+    let dep = map.get("dep").unwrap();
+    assert_eq!(app["kind"], "Workspace");
+    assert_eq!(dep["kind"], "External");
+    assert_eq!(app["metrics"]["ce"].as_u64().unwrap(), 1);
+    assert_eq!(dep["metrics"]["ca"].as_u64().unwrap(), 1);
+    assert_eq!(dep["metrics"]["ce"].as_u64().unwrap(), 0);
+    assert_eq!(
+        app["external_depends_on"]["App"]["dep"]
+            .as_array()
+            .unwrap()[0]
+            .as_str()
+            .unwrap(),
+        "Dep"
+    );
 }
