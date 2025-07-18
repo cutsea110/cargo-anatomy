@@ -89,8 +89,8 @@ where
         }
     }
     let out_str = match format {
-        "json" => serde_json::to_string(&out)?,
-        "yaml" => serde_yaml::to_string(&out)?,
+        "json" => cargo_anatomy::loc_try!(serde_json::to_string(&out)),
+        "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&out)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !include_external {
         cmd.no_deps();
     }
-    let metadata = cmd.exec()?;
+    let metadata = cargo_anatomy::loc_try!(cmd.exec());
     info!(
         "found {} workspace members",
         metadata.workspace_members.len()
@@ -175,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !seen.insert(crate_name.clone()) {
             continue;
         }
-        let files = parse_package(package)?;
+        let files = cargo_anatomy::loc_try!(parse_package(package));
         name_map.push((crate_name.clone(), package.name.clone()));
         let kind = if metadata.workspace_members.contains(&package.id) {
             CrateKind::Workspace
@@ -193,13 +193,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 detail.kind = *k;
             }
         }
-        emit_results(map, &name_map, &format)?;
+        cargo_anatomy::loc_try!(emit_results(map, &name_map, &format));
     } else {
         let metrics_map = analyze_workspace(&crates);
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
         }
-        emit_results(metrics_map, &name_map, &format)?;
+        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, &format));
     }
     Ok(())
 }
