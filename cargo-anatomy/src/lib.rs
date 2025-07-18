@@ -7,6 +7,34 @@ use log::{debug, info};
 use serde::Serialize;
 use syn::{visit::Visit, File};
 use walkdir::WalkDir;
+use std::panic::Location;
+use std::io;
+
+/// Wrap an error with file and line information.
+#[track_caller]
+pub fn error_with_location<E>(err: E) -> Box<dyn std::error::Error>
+where
+    E: std::fmt::Display,
+{
+    let loc = Location::caller();
+    Box::new(io::Error::new(
+        io::ErrorKind::Other,
+        format!("{} at {}:{}", err, loc.file(), loc.line()),
+    ))
+}
+
+/// Try expression and attach location info on error.
+#[macro_export]
+macro_rules! loc_try {
+    ($expr:expr) => {
+        match $expr {
+            Ok(val) => val,
+            Err(err) => {
+                return Err($crate::error_with_location(err));
+            }
+        }
+    };
+}
 
 fn has_test_attr(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|a| {
@@ -375,7 +403,7 @@ pub fn parse_package(
     let mut files = Vec::new();
     for dir in dirs {
         for entry in WalkDir::new(dir) {
-            let entry = entry?;
+            let entry = crate::loc_try!(entry);
             if entry.file_type().is_file()
                 && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
             {
@@ -387,8 +415,8 @@ pub fn parse_package(
                     continue;
                 }
                 debug!("parsing {}", entry.path().display());
-                let content = fs::read_to_string(entry.path())?;
-                let file = syn::parse_file(&content)?;
+                let content = crate::loc_try!(fs::read_to_string(entry.path()));
+                let file = crate::loc_try!(syn::parse_file(&content));
                 files.push(file);
             }
         }
@@ -400,7 +428,7 @@ pub fn analyze_package(
     package: &cargo_metadata::Package,
     workspace_types: &HashSet<String>,
 ) -> Result<Metrics, Box<dyn std::error::Error>> {
-    let files = parse_package(package)?;
+    let files = crate::loc_try!(parse_package(package));
     Ok(analyze_files(&files, workspace_types))
 }
 /// Analyze parsed files to produce package metrics.
