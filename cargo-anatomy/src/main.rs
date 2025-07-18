@@ -47,29 +47,58 @@ fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
         .unwrap_or_else(|| pkg.name.replace('-', "_"))
 }
 
+#[derive(Clone, Serialize)]
+struct CrateDetails {
+    kind: cargo_anatomy::CrateKind,
+    classes: Vec<cargo_anatomy::ClassInfo>,
+    internal_depends_on: std::collections::HashMap<String, Vec<String>>,
+    internal_depended_by: std::collections::HashMap<String, Vec<String>>,
+    external_depends_on:
+        std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+    external_depended_by:
+        std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+}
+
+#[derive(Clone, Serialize)]
+struct OutputEntry {
+    crate_name: String,
+    metrics: cargo_anatomy::Metrics,
+    evaluation: cargo_anatomy::Evaluation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<CrateDetails>,
+}
+
 trait IntoOutput: Clone + Serialize {
-    type Out: Serialize;
-    fn into_output(self, package_name: String) -> Self::Out;
+    fn into_output(self, package_name: String) -> OutputEntry;
 }
 
 impl IntoOutput for cargo_anatomy::Metrics {
-    type Out = (String, cargo_anatomy::MetricsResult);
-    fn into_output(self, package_name: String) -> Self::Out {
+    fn into_output(self, package_name: String) -> OutputEntry {
         let eval = cargo_anatomy::evaluate_metrics(&self);
-        (
-            package_name,
-            cargo_anatomy::MetricsResult {
-                metrics: self,
-                evaluation: eval,
-            },
-        )
+        OutputEntry {
+            crate_name: package_name,
+            metrics: self,
+            evaluation: eval,
+            details: None,
+        }
     }
 }
 
 impl IntoOutput for cargo_anatomy::CrateDetail {
-    type Out = (String, cargo_anatomy::CrateDetail);
-    fn into_output(self, package_name: String) -> Self::Out {
-        (package_name, self)
+    fn into_output(self, package_name: String) -> OutputEntry {
+        OutputEntry {
+            crate_name: package_name,
+            metrics: self.metrics,
+            evaluation: self.evaluation,
+            details: Some(CrateDetails {
+                kind: self.kind,
+                classes: self.classes,
+                internal_depends_on: self.internal_depends_on,
+                internal_depended_by: self.internal_depended_by,
+                external_depends_on: self.external_depends_on,
+                external_depended_by: self.external_depended_by,
+            }),
+        }
     }
 }
 
@@ -80,7 +109,6 @@ fn emit_results<T>(
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     T: IntoOutput,
-    T::Out: Serialize,
 {
     let mut out = Vec::new();
     for (crate_name, package_name) in name_map {

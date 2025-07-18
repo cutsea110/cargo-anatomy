@@ -53,13 +53,14 @@ cargo anatomy -V
 cargo anatomy -o yaml
 ```
 
-The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. Each crate in the results includes a `kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output.
+The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output.
 
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 
 ```json
-{
-  "my_crate": {
+[
+  {
+    "crate_name": "my_crate",
     "metrics": {
       "n": 3,
       "r": 1,
@@ -77,13 +78,16 @@ See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main
       "i": "unstable",
       "d_prime": "good"
     },
-    "classes": [
-      { "name": "Foo", "kind": "Struct" },
-      { "name": "Bar", "kind": "Struct" },
-      { "name": "MyTrait", "kind": "Trait" }
-    ]
+    "details": {
+      "kind": "Workspace",
+      "classes": [
+        { "name": "Foo", "kind": "Struct" },
+        { "name": "Bar", "kind": "Struct" },
+        { "name": "MyTrait", "kind": "Trait" }
+      ]
+    }
   }
-}
+]
 ```
 
 Enable `RUST_LOG=info` to see progress logs during analysis.

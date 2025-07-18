@@ -1,15 +1,15 @@
 # Output Format Schema
 
 This document describes the JSON/YAML output produced by `cargo anatomy`.
-The tool emits a list where each element is a two item array:
+The tool emits a list where each element is an object:
 
-```
-[package_name, result]
+```json
+{ "crate_name": "pkg", ... }
 ```
 
-The first element is the package name as a string.  The second element is
-either a **Metrics** object or a **CrateDetail** object when the `-a` flag is
-used.
+Each object always includes the crate name, its computed metrics and the
+evaluation labels. When the `-a` flag is used a `details` object is also
+present containing class and dependency information.
 
 ## Metrics Object
 
@@ -36,12 +36,11 @@ The results also include qualitative labels derived from the metrics:
 | `i` | "stable", "moderate" or "unstable" based on instability. |
 | `d_prime` | "good", "balanced", "painful" or "useless" depending on the normalized distance. |
 
-## CrateDetail Object
+## Details Object
 
-The detailed result includes additional fields:
+When running with `-a` a `details` object is emitted containing:
 
 - `kind` – either `Workspace` or `External`.
-- `metrics` – the Metrics object described above.
 - `classes` – list of class information objects.
 - `internal_depends_on` – mapping of type name to the list of types it depends on within the same crate.
 - `internal_depended_by` – mapping of type name to the list of types that depend on it within the same crate.
@@ -58,8 +57,9 @@ Each class object contains:
 The following is a shortened example after running `cargo anatomy -a | jq`:
 
 ```json
-{
-  "my_crate": {
+[
+  {
+    "crate_name": "my_crate",
     "metrics": {
       "n": 3,
       "r": 1,
@@ -69,7 +69,7 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
       "a": 0.33,
       "i": 1.0,
       "d": 0.24,
-    "d_prime": 0.34
+      "d_prime": 0.34
     },
     "evaluation": {
       "a": "mixed",
@@ -77,11 +77,14 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
       "i": "unstable",
       "d_prime": "good"
     },
-    "classes": [
-      { "name": "Foo", "kind": "Struct" },
-      { "name": "Bar", "kind": "Struct" },
-      { "name": "MyTrait", "kind": "Trait" }
-    ]
+    "details": {
+      "kind": "Workspace",
+      "classes": [
+        { "name": "Foo", "kind": "Struct" },
+        { "name": "Bar", "kind": "Struct" },
+        { "name": "MyTrait", "kind": "Trait" }
+      ]
+    }
   }
-}
+]
 ```
