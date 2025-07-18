@@ -5,10 +5,10 @@ use std::fs;
 use log::{debug, info};
 
 use serde::Serialize;
+use std::io;
+use std::panic::Location;
 use syn::{visit::Visit, File};
 use walkdir::WalkDir;
-use std::panic::Location;
-use std::io;
 
 /// Wrap an error with file and line information.
 #[track_caller]

@@ -133,18 +133,20 @@ fn include_external_crate() {
     let arr = v.as_array().unwrap();
     let mut map = std::collections::HashMap::new();
     for item in arr {
-        let pkg = item[0].as_str().unwrap();
-        map.insert(pkg, &item[1]);
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
     }
     let app = map.get("app").unwrap();
     let dep = map.get("dep").unwrap();
-    assert_eq!(app["kind"], "Workspace");
-    assert_eq!(dep["kind"], "External");
+    assert_eq!(app["details"]["kind"], "Workspace");
+    assert_eq!(dep["details"]["kind"], "External");
     assert_eq!(app["metrics"]["ce"].as_u64().unwrap(), 1);
     assert_eq!(dep["metrics"]["ca"].as_u64().unwrap(), 1);
     assert_eq!(dep["metrics"]["ce"].as_u64().unwrap(), 0);
     assert_eq!(
-        app["external_depends_on"]["App"]["dep"].as_array().unwrap()[0]
+        app["details"]["external_depends_on"]["App"]["dep"]
+            .as_array()
+            .unwrap()[0]
             .as_str()
             .unwrap(),
         "Dep"
@@ -173,7 +175,7 @@ fn includes_evaluation_labels() {
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     let arr = v.as_array().unwrap();
-    let entry = &arr[0][1];
+    let entry = &arr[0];
     assert!(entry.get("evaluation").is_some());
     assert!(entry["evaluation"].get("a").is_some());
 }
