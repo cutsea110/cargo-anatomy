@@ -9,7 +9,7 @@
     "maxItems": 2,
     "items": [
       { "type": "string", "description": "Package name" },
-      { "oneOf": [ { "$ref": "#/definitions/Metrics" }, { "$ref": "#/definitions/CrateDetail" } ] }
+      { "oneOf": [ { "$ref": "#/definitions/MetricsResult" }, { "$ref": "#/definitions/CrateDetail" } ] }
     ]
   },
   "definitions": {
@@ -27,6 +27,26 @@
         "d_prime": { "type": "number", "description": "Normalized distance from main sequence" }
       },
       "required": ["r", "n", "h", "ca", "ce", "a", "i", "d", "d_prime"],
+      "additionalProperties": false
+    },
+    "Evaluation": {
+      "type": "object",
+      "properties": {
+        "a": { "type": "string", "enum": ["abstract", "mixed", "concrete"] },
+        "h": { "type": "string", "enum": ["high", "low"] },
+        "i": { "type": "string", "enum": ["stable", "moderate", "unstable"] },
+        "d_prime": { "type": "string", "enum": ["good", "balanced", "painful", "useless"] }
+      },
+      "required": ["a", "h", "i", "d_prime"],
+      "additionalProperties": false
+    },
+    "MetricsResult": {
+      "type": "object",
+      "properties": {
+        "metrics": { "$ref": "#/definitions/Metrics" },
+        "evaluation": { "$ref": "#/definitions/Evaluation" }
+      },
+      "required": ["metrics", "evaluation"],
       "additionalProperties": false
     },
     "ClassKind": {
@@ -62,6 +82,7 @@
       "properties": {
         "kind": { "$ref": "#/definitions/CrateKind" },
         "metrics": { "$ref": "#/definitions/Metrics" },
+        "evaluation": { "$ref": "#/definitions/Evaluation" },
         "classes": {
           "type": "array",
           "items": { "$ref": "#/definitions/ClassInfo" }
@@ -74,6 +95,7 @@
       "required": [
         "kind",
         "metrics",
+        "evaluation",
         "classes",
         "internal_depends_on",
         "internal_depended_by",
