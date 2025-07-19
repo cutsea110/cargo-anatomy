@@ -89,8 +89,30 @@ struct OutputRoot<T: Serialize> {
 }
 
 mod graphviz_dot {
-    use super::{OutputEntry, OutputRoot};
-    use std::collections::HashSet;
+    use super::{CrateDetails, OutputEntry, OutputRoot};
+    use std::collections::{HashMap, HashSet};
+
+    fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
+        let mut set = HashSet::new();
+        for map in details.external_depends_on.values() {
+            if let Some(types) = map.get(target) {
+                for ty in types {
+                    set.insert(ty.clone());
+                }
+            }
+        }
+        set.len()
+    }
+
+    fn afferent_couples(details: &CrateDetails, from: &str) -> usize {
+        let mut set = HashSet::new();
+        for (ty, crate_map) in &details.external_depended_by {
+            if crate_map.contains_key(from) {
+                set.insert(ty.clone());
+            }
+        }
+        set.len()
+    }
 
     pub(super) fn to_string(
         root: &OutputRoot<OutputEntry>,
@@ -126,17 +148,34 @@ mod graphviz_dot {
         }
 
         let mut edges = HashSet::new();
-        for (i, (src, _)) in name_map.iter().enumerate() {
+        // Map crate name to its details for quick lookup
+        let mut details_by_name: HashMap<&str, &crate::CrateDetails> = HashMap::new();
+        for (i, (name, _)) in name_map.iter().enumerate() {
             if let Some(entry) = root.crates.get(i) {
-                if let Some(details) = &entry.details {
-                    for maps in details.external_depends_on.values() {
+                if let Some(d) = &entry.details {
+                    details_by_name.insert(name.as_str(), d);
+                }
+            }
+        }
+
+        for (i, (src, _)) in name_map.iter().enumerate() {
+            if let Some(src_entry) = root.crates.get(i) {
+                if let Some(src_details) = &src_entry.details {
+                    for maps in src_details.external_depends_on.values() {
                         for (dst, _) in maps {
-                            if edges.insert((src.clone(), dst.clone())) {
-                                out.push_str(&format!(
-                                    "    \"{}\" -> \"{}\" [label=\"Ca={} Ce={}\"];\n",
-                                    src, dst, entry.metrics.ca, entry.metrics.ce
-                                ));
+                            if !edges.insert((src.clone(), dst.clone())) {
+                                continue;
                             }
+                            let ec = efferent_couples(src_details, dst);
+                            let ac = if let Some(dst_details) = details_by_name.get(dst.as_str()) {
+                                afferent_couples(dst_details, src)
+                            } else {
+                                0
+                            };
+                            out.push_str(&format!(
+                                "    \"{}\" -> \"{}\" [label=\"Ca={} Ce={}\"];\n",
+                                src, dst, ac, ec
+                            ));
                         }
                     }
                 }
