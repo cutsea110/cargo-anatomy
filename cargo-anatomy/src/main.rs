@@ -1,5 +1,5 @@
 //! CLI entry point for the cargo-anatomy tool.
-use cargo_anatomy::{analyze_workspace, analyze_workspace_details, parse_package, CrateKind};
+use cargo_anatomy::{analyze_workspace_details, parse_package, CrateKind};
 use env_logger;
 use getopts::Options;
 use log::info;
@@ -77,6 +77,17 @@ struct OutputEntry {
     details: Option<CrateDetails>,
 }
 
+#[derive(Serialize)]
+struct Warnings {
+    dependency_cycles: Vec<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct OutputRoot<T: Serialize> {
+    crates: Vec<T>,
+    warnings: Warnings,
+}
+
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
@@ -114,6 +125,7 @@ impl IntoOutput for cargo_anatomy::CrateDetail {
 fn emit_results<T>(
     map: std::collections::HashMap<String, T>,
     name_map: &[(String, String)],
+    cycles: Vec<Vec<String>>,
     format: &str,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -125,9 +137,15 @@ where
             out.push(item.clone().into_output(package_name.clone()));
         }
     }
+    let root = OutputRoot {
+        crates: out,
+        warnings: Warnings {
+            dependency_cycles: cycles,
+        },
+    };
     let out_str = match format {
-        "json" => cargo_anatomy::loc_try!(serde_json::to_string(&out)),
-        "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&out)),
+        "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
+        "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -223,20 +241,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         crates.push((crate_name, files));
     }
 
-    if show_all {
-        let mut map = analyze_workspace_details(&crates);
-        for (name, detail) in map.iter_mut() {
-            if let Some(k) = kind_map.get(name) {
-                detail.kind = *k;
-            }
+    let mut details_map = analyze_workspace_details(&crates);
+    for (name, detail) in details_map.iter_mut() {
+        if let Some(k) = kind_map.get(name) {
+            detail.kind = *k;
         }
-        cargo_anatomy::loc_try!(emit_results(map, &name_map, &format));
+    }
+    let cycles = cargo_anatomy::dependency_cycles(&details_map);
+
+    if show_all {
+        cargo_anatomy::loc_try!(emit_results(details_map, &name_map, cycles, &format));
     } else {
-        let metrics_map = analyze_workspace(&crates);
+        let metrics_map: HashMap<String, cargo_anatomy::Metrics> = details_map
+            .into_iter()
+            .map(|(k, v)| (k, v.metrics))
+            .collect();
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
         }
-        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, &format));
+        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format));
     }
     Ok(())
 }

@@ -68,36 +68,41 @@ The command outputs metrics for every member crate in compact JSON format by def
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 
 ```json
-[
-  {
-    "crate_name": "my_crate",
-    "metrics": {
-      "n": 3,
-      "r": 1,
-      "h": 0.67,
-      "ca": 0,
-      "ce": 1,
-      "a": 0.33,
-      "i": 1.0,
-      "d": 0.24,
-      "d_prime": 0.34
-    },
-    "evaluation": {
-      "a": "mixed",
-      "h": "low",
-      "i": "unstable",
-      "d_prime": "good"
-    },
-    "details": {
-      "kind": "Workspace",
-      "classes": [
-        { "name": "Foo", "kind": "Struct" },
-        { "name": "Bar", "kind": "Struct" },
-        { "name": "MyTrait", "kind": "Trait" }
-      ]
+{
+  "crates": [
+    {
+      "crate_name": "my_crate",
+      "metrics": {
+        "n": 3,
+        "r": 1,
+        "h": 0.67,
+        "ca": 0,
+        "ce": 1,
+        "a": 0.33,
+        "i": 1.0,
+        "d": 0.24,
+        "d_prime": 0.34
+      },
+      "evaluation": {
+        "a": "mixed",
+        "h": "low",
+        "i": "unstable",
+        "d_prime": "good"
+      },
+      "details": {
+        "kind": "Workspace",
+        "classes": [
+          { "name": "Foo", "kind": "Struct" },
+          { "name": "Bar", "kind": "Struct" },
+          { "name": "MyTrait", "kind": "Trait" }
+        ]
+      }
     }
+  ],
+  "warnings": {
+    "dependency_cycles": []
   }
-]
+}
 ```
 
 Enable `RUST_LOG=info` to see progress logs during analysis.
