@@ -29,6 +29,16 @@ cargo install cargo-anatomy
 - **D** — distance from the main sequence: `D = |A + I - 1| / sqrt(2)`.
 - **D'** — normalized distance from the main sequence: `D' = |A + I - 1|`.
 
+## Evaluation
+Each metric is also mapped to a qualitative label. These labels are assigned using the following thresholds:
+
+- **A (abstraction)**: ≥ 0.7 is `abstract`, ≤ 0.3 is `concrete`, otherwise `mixed`.
+- **H (cohesion)**: > 1.0 is `high`, otherwise `low`.
+- **I (instability)**: ≥ 0.7 is `unstable`, ≤ 0.3 is `stable`, otherwise `moderate`.
+- **D' (normalized distance)**:
+  - ≤ 0.4 → `good`.
+  - ≥ 0.6 → `useless` if `A + I - 1 ≥ 0`, otherwise `painful`.
+  - otherwise `balanced`.
 `cargo-anatomy` also reports the list of classes discovered in each crate and detailed dependency graphs when invoked with the `-a` flag.
 
 ## Usage
