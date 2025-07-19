@@ -1613,4 +1613,72 @@ mod tests {
             .map(|v| v.contains(&"Use".to_string()))
             .unwrap_or(false));
     }
+
+    #[test]
+    fn evaluate_metrics_thresholds() {
+        let m = Metrics {
+            r: 0,
+            n: 0,
+            h: 1.1,
+            ca: 0,
+            ce: 0,
+            a: 0.8,
+            i: 0.8,
+            d: 0.0,
+            d_prime: 0.7,
+        };
+        let eval = evaluate_metrics(&m);
+        assert!(matches!(eval.a, AbstractionEval::Abstract));
+        assert!(matches!(eval.h, CohesionEval::High));
+        assert!(matches!(eval.i, StabilityEval::Unstable));
+        assert!(matches!(eval.d_prime, DistanceEval::Useless));
+
+        let m = Metrics {
+            r: 0,
+            n: 0,
+            h: 0.8,
+            ca: 0,
+            ce: 0,
+            a: 0.2,
+            i: 0.2,
+            d: 0.0,
+            d_prime: 0.7,
+        };
+        let eval = evaluate_metrics(&m);
+        assert!(matches!(eval.a, AbstractionEval::Concrete));
+        assert!(matches!(eval.h, CohesionEval::Low));
+        assert!(matches!(eval.i, StabilityEval::Stable));
+        assert!(matches!(eval.d_prime, DistanceEval::Painful));
+
+        let m = Metrics {
+            r: 0,
+            n: 0,
+            h: 1.0,
+            ca: 0,
+            ce: 0,
+            a: 0.5,
+            i: 0.5,
+            d: 0.0,
+            d_prime: 0.5,
+        };
+        let eval = evaluate_metrics(&m);
+        assert!(matches!(eval.a, AbstractionEval::Mixed));
+        assert!(matches!(eval.h, CohesionEval::Low));
+        assert!(matches!(eval.i, StabilityEval::Moderate));
+        assert!(matches!(eval.d_prime, DistanceEval::Balanced));
+
+        let m = Metrics {
+            r: 0,
+            n: 0,
+            h: 1.0,
+            ca: 0,
+            ce: 0,
+            a: 0.5,
+            i: 0.5,
+            d: 0.0,
+            d_prime: 0.3,
+        };
+        let eval = evaluate_metrics(&m);
+        assert!(matches!(eval.d_prime, DistanceEval::Good));
+    }
 }
