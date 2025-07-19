@@ -16,6 +16,7 @@ fn prints_help() {
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("Usage:"));
     assert!(s.contains("Ce"));
+    assert!(s.contains("Evaluation:"));
 }
 
 #[test]
