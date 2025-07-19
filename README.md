@@ -104,7 +104,22 @@ Enable `RUST_LOG=info` to see progress logs during analysis.
 
 ## Docker image
 
-Build an image for the current architecture and load it into Docker with
+### Using the official image
+
+A pre-built container is available on Docker Hub. Replace `<version>` with the
+desired tag and mount your workspace into `/work`:
+
+```bash
+docker run --rm -v $(pwd):/work cutsea110/cargo-anatomy:<version> [ARGS...]
+```
+
+Any arguments after the image name are forwarded to `cargo-anatomy`. The image
+includes the toolchain `cargo` binary and sets the `CARGO` environment variable
+to that path, so `cargo metadata` works without `rustup`.
+
+### Building an image (for developers)
+
+Build an image for the current architecture and load it into Docker with:
 
 ```bash
 docker buildx build --platform <arch> -t cargo-anatomy --load .
@@ -118,16 +133,7 @@ Arm-based hosts. To publish a multi-platform image, use `--push` instead of
 docker buildx build --platform linux/amd64,linux/arm64 \
     -t <your-registry>/cargo-anatomy:<version> --push .
 ```
-Set `<version>` to the tag for the published image.
-
-Run the container on your project by mounting the workspace into `/work`:
-
-```bash
-docker run --rm -v $(pwd):/work <your-registry>/cargo-anatomy:<version> [ARGS...]
-```
-
-Any arguments after the image name are forwarded to `cargo-anatomy`. The image
-includes the toolchain `cargo` binary and sets the `CARGO` environment variable
-to that path, so `cargo metadata` works without `rustup`. The runtime uses a
-distroless base for a smaller footprint.
+Set `<version>` to the tag for the published image. After building or pulling an
+image, run it as shown above. The runtime uses a distroless base for a smaller
+footprint.
 
