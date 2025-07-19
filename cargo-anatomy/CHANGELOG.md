@@ -12,3 +12,11 @@ All notable changes to this project will be documented in this file.
 - Output schema documentation with README link.
 - Clarification of `-x` option impact.
 - Project logo.
+
+## [0.3.0] - 2025-07-19
+### Added
+- Qualitative evaluation labels for metrics.
+- Output schema now uses objects with `crate_name`, `metrics` and `evaluation` fields.
+- File and line number information on errors.
+- Evaluation criteria in help output.
+- Expanded Docker usage documentation.
