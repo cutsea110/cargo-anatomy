@@ -1,5 +1,5 @@
 //! CLI entry point for the cargo-anatomy tool.
-use cargo_anatomy::{analyze_workspace_details, dependency_cycles, parse_package, CrateKind};
+use cargo_anatomy::{analyze_workspace_details, parse_package, CrateKind};
 use env_logger;
 use getopts::Options;
 use log::info;
