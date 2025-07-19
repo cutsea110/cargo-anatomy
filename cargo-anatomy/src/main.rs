@@ -101,11 +101,15 @@ mod graphviz_dot {
     }
 
     fn afferent_couples(details: &CrateDetails, dependent: &str) -> usize {
-        details
-            .external_depended_by
-            .iter()
-            .filter(|(_, map)| map.contains_key(dependent))
-            .count()
+        let mut set = HashSet::new();
+        for map in details.external_depended_by.values() {
+            if let Some(types) = map.get(dependent) {
+                for ty in types {
+                    set.insert(ty.clone());
+                }
+            }
+        }
+        set.len()
     }
 
     pub(super) fn to_string(

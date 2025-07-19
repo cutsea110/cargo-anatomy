@@ -245,3 +245,37 @@ fn dot_edge_couples() {
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("\"crate_a\" -> \"crate_b\" [label=\"Ca=1 Ce=2\"]"));
 }
+
+#[test]
+fn dot_edge_unique_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_a/src/lib.rs"), "pub struct A;\n").unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/src/lib.rs"),
+        "use crate_a::A; pub struct B { a1: A, a2: A }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("\"crate_b\" -> \"crate_a\" [label=\"Ca=0 Ce=1\"]"));
+}
