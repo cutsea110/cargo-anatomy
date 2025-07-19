@@ -131,7 +131,8 @@ fn include_external_crate() {
     cmd.args(["-a", "-x"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
-    let arr = v.as_array().unwrap();
+    let obj = v.as_object().unwrap();
+    let arr = obj.get("crates").unwrap().as_array().unwrap();
     let mut map = std::collections::HashMap::new();
     for item in arr {
         let pkg = item["crate_name"].as_str().unwrap();
@@ -175,7 +176,8 @@ fn includes_evaluation_labels() {
     cmd.current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
-    let arr = v.as_array().unwrap();
+    let obj = v.as_object().unwrap();
+    let arr = obj.get("crates").unwrap().as_array().unwrap();
     let entry = &arr[0];
     assert!(entry.get("evaluation").is_some());
     assert!(entry["evaluation"].get("a").is_some());

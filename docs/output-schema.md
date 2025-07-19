@@ -1,15 +1,20 @@
 # Output Format Schema
 
 This document describes the JSON/YAML output produced by `cargo anatomy`.
-The tool emits a list where each element is an object:
+The command prints a single object with two sections:
 
 ```json
-{ "crate_name": "pkg", ... }
+{
+  "crates": [ { "crate_name": "pkg", ... } ],
+  "warnings": { "dependency_cycles": [] }
+}
 ```
 
-Each object always includes the crate name, its computed metrics and the
-evaluation labels. When the `-a` flag is used a `details` object is also
-present containing class and dependency information.
+The `crates` array contains an entry for each analyzed crate. Each entry always
+includes the crate name, its computed metrics and the evaluation labels. When
+the `-a` flag is used a `details` object is also present containing class and
+dependency information. The `warnings` object aggregates workspace wide
+notices such as detected dependency cycles.
 
 ## Metrics Object
 
@@ -57,34 +62,39 @@ Each class object contains:
 The following is a shortened example after running `cargo anatomy -a | jq`:
 
 ```json
-[
-  {
-    "crate_name": "my_crate",
-    "metrics": {
-      "n": 3,
-      "r": 1,
-      "h": 0.67,
-      "ca": 0,
-      "ce": 1,
-      "a": 0.33,
-      "i": 1.0,
-      "d": 0.24,
-      "d_prime": 0.34
-    },
-    "evaluation": {
-      "a": "mixed",
-      "h": "low",
-      "i": "unstable",
-      "d_prime": "good"
-    },
-    "details": {
-      "kind": "Workspace",
-      "classes": [
-        { "name": "Foo", "kind": "Struct" },
-        { "name": "Bar", "kind": "Struct" },
-        { "name": "MyTrait", "kind": "Trait" }
-      ]
+{
+  "crates": [
+    {
+      "crate_name": "my_crate",
+      "metrics": {
+        "n": 3,
+        "r": 1,
+        "h": 0.67,
+        "ca": 0,
+        "ce": 1,
+        "a": 0.33,
+        "i": 1.0,
+        "d": 0.24,
+        "d_prime": 0.34
+      },
+      "evaluation": {
+        "a": "mixed",
+        "h": "low",
+        "i": "unstable",
+        "d_prime": "good"
+      },
+      "details": {
+        "kind": "Workspace",
+        "classes": [
+          { "name": "Foo", "kind": "Struct" },
+          { "name": "Bar", "kind": "Struct" },
+          { "name": "MyTrait", "kind": "Trait" }
+        ]
+      }
     }
+  ],
+  "warnings": {
+    "dependency_cycles": []
   }
-]
+}
 ```

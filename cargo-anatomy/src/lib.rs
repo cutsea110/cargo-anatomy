@@ -692,6 +692,100 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
     result
 }
 
+/// Determine dependency cycles between crates based on analysis details.
+pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<String>> {
+    // Build adjacency list of crate -> crates it depends on
+    let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
+    for (name, detail) in details {
+        let entry = graph.entry(name.clone()).or_default();
+        for map in detail.external_depends_on.values() {
+            for (krate, _) in map {
+                entry.insert(krate.clone());
+            }
+        }
+    }
+
+    let graph: HashMap<String, Vec<String>> = graph
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().collect()))
+        .collect();
+
+    fn strongconnect(
+        v: &String,
+        index: &mut usize,
+        stack: &mut Vec<String>,
+        indices: &mut HashMap<String, usize>,
+        lowlink: &mut HashMap<String, usize>,
+        on_stack: &mut HashSet<String>,
+        graph: &HashMap<String, Vec<String>>,
+        result: &mut Vec<Vec<String>>,
+    ) {
+        indices.insert(v.clone(), *index);
+        lowlink.insert(v.clone(), *index);
+        *index += 1;
+        stack.push(v.clone());
+        on_stack.insert(v.clone());
+
+        if let Some(neigh) = graph.get(v) {
+            for w in neigh {
+                if !indices.contains_key(w) {
+                    strongconnect(w, index, stack, indices, lowlink, on_stack, graph, result);
+                    let lw = *lowlink.get(w).unwrap();
+                    let lv = *lowlink.get(v).unwrap();
+                    if lw < lv {
+                        lowlink.insert(v.clone(), lw);
+                    }
+                } else if on_stack.contains(w) {
+                    let iw = *indices.get(w).unwrap();
+                    let lv = *lowlink.get(v).unwrap();
+                    if iw < lv {
+                        lowlink.insert(v.clone(), iw);
+                    }
+                }
+            }
+        }
+
+        if indices.get(v) == lowlink.get(v) {
+            let mut scc = Vec::new();
+            while let Some(w) = stack.pop() {
+                on_stack.remove(&w);
+                scc.push(w.clone());
+                if &w == v {
+                    break;
+                }
+            }
+            if scc.len() > 1 {
+                scc.reverse();
+                result.push(scc);
+            }
+        }
+    }
+
+    let mut index = 0usize;
+    let mut stack = Vec::new();
+    let mut indices: HashMap<String, usize> = HashMap::new();
+    let mut lowlink: HashMap<String, usize> = HashMap::new();
+    let mut on_stack: HashSet<String> = HashSet::new();
+    let mut result_vec = Vec::new();
+
+    for v in graph.keys() {
+        if !indices.contains_key(v) {
+            strongconnect(
+                v,
+                &mut index,
+                &mut stack,
+                &mut indices,
+                &mut lowlink,
+                &mut on_stack,
+                &graph,
+                &mut result_vec,
+            );
+        }
+    }
+
+    result_vec
+}
+
 struct RefVisitor<'a> {
     defined: &'a HashMap<String, ClassKind>,
     workspace: &'a HashSet<String>,
@@ -1680,5 +1774,51 @@ mod tests {
         };
         let eval = evaluate_metrics(&m);
         assert!(matches!(eval.d_prime, DistanceEval::Good));
+    }
+
+    #[test]
+    fn detects_two_crate_cycle() {
+        let src_a = "use crate_b::B; pub struct A(B);";
+        let src_b = "use crate_a::A; pub struct B(A);";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let cycles = dependency_cycles(&info);
+        assert_eq!(cycles.len(), 1);
+        let cyc = &cycles[0];
+        assert!(cyc.contains(&"crate_a".to_string()));
+        assert!(cyc.contains(&"crate_b".to_string()));
+    }
+
+    #[test]
+    fn detects_three_crate_cycle() {
+        let src_a = "use crate_b::B; pub struct A(B);";
+        let src_b = "use crate_c::C; pub struct B(C);";
+        let src_c = "use crate_a::A; pub struct C(A);";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+            ("crate_c".to_string(), vec![file_c]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let cycles = dependency_cycles(&info);
+        assert_eq!(cycles.len(), 1);
+        let cyc = &cycles[0];
+        assert!(cyc.contains(&"crate_a".to_string()));
+        assert!(cyc.contains(&"crate_b".to_string()));
+        assert!(cyc.contains(&"crate_c".to_string()));
     }
 }
