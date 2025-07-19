@@ -1821,4 +1821,29 @@ mod tests {
         assert!(cyc.contains(&"crate_b".to_string()));
         assert!(cyc.contains(&"crate_c".to_string()));
     }
+
+    #[test]
+    fn unrelated_crate_not_included() {
+        let src_a = "use crate_b::B; pub struct A(B);";
+        let src_b = "use crate_a::A; pub struct B(A);";
+        let src_c = "pub struct C;";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+            ("crate_c".to_string(), vec![file_c]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let cycles = dependency_cycles(&info);
+        assert_eq!(cycles.len(), 1);
+        let cyc = &cycles[0];
+        assert!(cyc.contains(&"crate_a".to_string()));
+        assert!(cyc.contains(&"crate_b".to_string()));
+        assert!(!cyc.contains(&"crate_c".to_string()));
+    }
 }
