@@ -243,7 +243,7 @@ fn dot_edge_couples() {
     cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
-    assert!(s.contains("\"crate_a\" -> \"crate_b\" [label=\"Ca=1 Ce=2\"]"));
+    assert!(s.contains("\"crate_a\" -> \"crate_b\" [taillabel=\"2\"]"));
 }
 
 #[test]
@@ -277,5 +277,5 @@ fn dot_edge_unique_counts() {
     cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
-    assert!(s.contains("\"crate_b\" -> \"crate_a\" [label=\"Ca=0 Ce=1\"]"));
+    assert!(s.contains("\"crate_b\" -> \"crate_a\" [taillabel=\"1\"]"));
 }

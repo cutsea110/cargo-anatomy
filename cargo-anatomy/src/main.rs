@@ -100,18 +100,6 @@ mod graphviz_dot {
             .count()
     }
 
-    fn afferent_couples(details: &CrateDetails, dependent: &str) -> usize {
-        let mut set = HashSet::new();
-        for map in details.external_depended_by.values() {
-            if let Some(types) = map.get(dependent) {
-                for ty in types {
-                    set.insert(ty.clone());
-                }
-            }
-        }
-        set.len()
-    }
-
     pub(super) fn to_string(
         root: &OutputRoot<OutputEntry>,
         name_map: &[(String, String)],
@@ -156,10 +144,9 @@ mod graphviz_dot {
                                 continue;
                             }
                             let ec = efferent_couples(src_details, dst);
-                            let ac = afferent_couples(src_details, dst);
                             out.push_str(&format!(
-                                "    \"{}\" -> \"{}\" [label=\"Ca={} Ce={}\"];\n",
-                                src, dst, ac, ec
+                                "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
+                                src, dst, ec
                             ));
                         }
                     }
