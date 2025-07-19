@@ -28,6 +28,15 @@ fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
         "  D' - normalized distance: |A + I - 1|",
     ];
     writeln!(w, "{}", metrics.join("\n"))?;
+
+    let evaluation = [
+        "Evaluation:",
+        "  A  - >=0.7 abstract, <=0.3 concrete, otherwise mixed",
+        "  H  - >1.0 high, otherwise low",
+        "  I  - >=0.7 unstable, <=0.3 stable, otherwise moderate",
+        "  D' - <=0.4 good; >=0.6 useless if A+I-1 >= 0 else painful; otherwise balanced",
+    ];
+    writeln!(w, "{}", evaluation.join("\n"))?;
     Ok(())
 }
 
