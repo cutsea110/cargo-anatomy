@@ -65,7 +65,7 @@ cargo anatomy -o yaml
 cargo anatomy -o dot
 ```
 
-The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output or `-o dot` for Graphviz.
+The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output or `-o dot` for Graphviz. When using `-o dot`, you can write the graph to a file and convert it with Graphviz: `cargo anatomy -o dot > graph.dot && dot -Tpng graph.dot -o graph.png`.
 
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 
