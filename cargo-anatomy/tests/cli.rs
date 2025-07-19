@@ -279,3 +279,34 @@ fn dot_edge_unique_counts() {
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("\"crate_b\" -> \"crate_a\" [taillabel=\"1\"]"));
 }
+
+#[test]
+fn dot_without_a_has_no_edge_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("a/Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("b/Cargo.toml"),
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a/src/lib.rs"), "pub struct A(pub b::B);\n").unwrap();
+    std::fs::write(dir.path().join("b/src/lib.rs"), "pub struct B;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-o", "dot"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("\"a\" -> \"b\""));
+    assert!(!s.contains("taillabel="));
+}

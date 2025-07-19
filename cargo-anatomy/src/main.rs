@@ -103,6 +103,7 @@ mod graphviz_dot {
     pub(super) fn to_string(
         root: &OutputRoot<OutputEntry>,
         name_map: &[(String, String)],
+        label_edges: bool,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut out = String::new();
         out.push_str("digraph cargo_anatomy {\n");
@@ -144,10 +145,14 @@ mod graphviz_dot {
                                 continue;
                             }
                             let ec = efferent_couples(src_details, dst);
-                            out.push_str(&format!(
-                                "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
-                                src, dst, ec
-                            ));
+                            if label_edges {
+                                out.push_str(&format!(
+                                    "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
+                                    src, dst, ec
+                                ));
+                            } else {
+                                out.push_str(&format!("    \"{}\" -> \"{}\";\n", src, dst));
+                            }
                         }
                     }
                 }
@@ -198,6 +203,7 @@ fn emit_results<T>(
     name_map: &[(String, String)],
     cycles: Vec<Vec<String>>,
     format: &str,
+    label_edges: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     T: IntoOutput,
@@ -217,7 +223,7 @@ where
     let out_str = match format {
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
-        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map)),
+        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -322,7 +328,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cycles = cargo_anatomy::dependency_cycles(&details_map);
 
     if show_all || format == "dot" {
-        cargo_anatomy::loc_try!(emit_results(details_map, &name_map, cycles, &format));
+        cargo_anatomy::loc_try!(emit_results(
+            details_map,
+            &name_map,
+            cycles,
+            &format,
+            show_all
+        ));
     } else {
         let metrics_map: HashMap<String, cargo_anatomy::Metrics> = details_map
             .into_iter()
@@ -331,7 +343,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
         }
-        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format));
+        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format, false));
     }
     Ok(())
 }
