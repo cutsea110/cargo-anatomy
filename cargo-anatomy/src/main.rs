@@ -88,6 +88,82 @@ struct OutputRoot<T: Serialize> {
     warnings: Warnings,
 }
 
+mod graphviz_dot {
+    use super::{CrateDetails, OutputEntry, OutputRoot};
+    use std::collections::HashSet;
+
+    fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
+        details
+            .external_depends_on
+            .iter()
+            .filter(|(_, map)| map.contains_key(target))
+            .count()
+    }
+
+    pub(super) fn to_string(
+        root: &OutputRoot<OutputEntry>,
+        name_map: &[(String, String)],
+        label_edges: bool,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut out = String::new();
+        out.push_str("digraph cargo_anatomy {\n");
+        out.push_str("    rankdir=LR;\n");
+        out.push_str("    node [shape=box];\n");
+
+        for (i, (crate_name, _)) in name_map.iter().enumerate() {
+            if let Some(entry) = root.crates.get(i) {
+                let m = &entry.metrics;
+                let e = &entry.evaluation;
+                out.push_str(&format!(
+                    "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
+                    crate_name,
+                    crate_name,
+                    m.n,
+                    m.r,
+                    m.h,
+                    m.ca,
+                    m.ce,
+                    m.a,
+                    m.i,
+                    m.d_prime,
+                    e.a,
+                    e.h,
+                    e.i,
+                    e.d_prime,
+                ));
+            }
+        }
+
+        let mut edges = HashSet::new();
+
+        for (i, (src, _)) in name_map.iter().enumerate() {
+            if let Some(src_entry) = root.crates.get(i) {
+                if let Some(src_details) = &src_entry.details {
+                    for maps in src_details.external_depends_on.values() {
+                        for (dst, _) in maps {
+                            if !edges.insert((src.clone(), dst.clone())) {
+                                continue;
+                            }
+                            let ec = efferent_couples(src_details, dst);
+                            if label_edges {
+                                out.push_str(&format!(
+                                    "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
+                                    src, dst, ec
+                                ));
+                            } else {
+                                out.push_str(&format!("    \"{}\" -> \"{}\";\n", src, dst));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        out.push_str("}\n");
+        Ok(out)
+    }
+}
+
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
@@ -127,6 +203,7 @@ fn emit_results<T>(
     name_map: &[(String, String)],
     cycles: Vec<Vec<String>>,
     format: &str,
+    label_edges: bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     T: IntoOutput,
@@ -146,6 +223,7 @@ where
     let out_str = match format {
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
+        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -170,7 +248,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Include external dependencies in analysis (slower)",
     );
     opts.optflag("V", "version", "Show version information");
-    opts.optopt("o", "output", "Output format: json or yaml", "FORMAT");
+    opts.optopt("o", "output", "Output format: json, yaml or dot", "FORMAT");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 
@@ -249,8 +327,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let cycles = cargo_anatomy::dependency_cycles(&details_map);
 
-    if show_all {
-        cargo_anatomy::loc_try!(emit_results(details_map, &name_map, cycles, &format));
+    if show_all || format == "dot" {
+        cargo_anatomy::loc_try!(emit_results(
+            details_map,
+            &name_map,
+            cycles,
+            &format,
+            show_all
+        ));
     } else {
         let metrics_map: HashMap<String, cargo_anatomy::Metrics> = details_map
             .into_iter()
@@ -259,7 +343,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
         }
-        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format));
+        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format, false));
     }
     Ok(())
 }
