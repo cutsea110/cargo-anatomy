@@ -90,26 +90,22 @@ struct OutputRoot<T: Serialize> {
 
 mod graphviz_dot {
     use super::{CrateDetails, OutputEntry, OutputRoot};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
-        let mut set = HashSet::new();
-        for (class, map) in &details.external_depends_on {
-            if map.contains_key(target) {
-                set.insert(class.clone());
-            }
-        }
-        set.len()
+        details
+            .external_depends_on
+            .iter()
+            .filter(|(_, map)| map.contains_key(target))
+            .count()
     }
 
-    fn afferent_couples(details: &CrateDetails, src: &str) -> usize {
-        let mut set = HashSet::new();
-        for (class, map) in &details.external_depends_on {
-            if map.contains_key(src) {
-                set.insert(class.clone());
-            }
-        }
-        set.len()
+    fn afferent_couples(details: &CrateDetails, dependent: &str) -> usize {
+        details
+            .external_depended_by
+            .iter()
+            .filter(|(_, map)| map.contains_key(dependent))
+            .count()
     }
 
     pub(super) fn to_string(
@@ -146,15 +142,6 @@ mod graphviz_dot {
         }
 
         let mut edges = HashSet::new();
-        // Map crate name to its details for quick lookup
-        let mut details_by_name: HashMap<&str, &crate::CrateDetails> = HashMap::new();
-        for (i, (name, _)) in name_map.iter().enumerate() {
-            if let Some(entry) = root.crates.get(i) {
-                if let Some(d) = &entry.details {
-                    details_by_name.insert(name.as_str(), d);
-                }
-            }
-        }
 
         for (i, (src, _)) in name_map.iter().enumerate() {
             if let Some(src_entry) = root.crates.get(i) {
@@ -165,11 +152,7 @@ mod graphviz_dot {
                                 continue;
                             }
                             let ec = efferent_couples(src_details, dst);
-                            let ac = if let Some(dst_details) = details_by_name.get(dst.as_str()) {
-                                afferent_couples(dst_details, src)
-                            } else {
-                                0
-                            };
+                            let ac = afferent_couples(src_details, dst);
                             out.push_str(&format!(
                                 "    \"{}\" -> \"{}\" [label=\"Ca={} Ce={}\"];\n",
                                 src, dst, ac, ec
