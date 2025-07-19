@@ -1846,4 +1846,40 @@ mod tests {
         assert!(cyc.contains(&"crate_b".to_string()));
         assert!(!cyc.contains(&"crate_c".to_string()));
     }
+
+    #[test]
+    fn detects_cycle_via_method_calls() {
+        let src_a = r#"
+            pub struct A;
+            impl A {
+                pub fn call_b() {
+                    crate_b::B::bar();
+                }
+                pub fn bar() {}
+            }
+        "#;
+        let src_b = r#"
+            pub struct B;
+            impl B {
+                pub fn bar() {
+                    crate_a::A::call_b();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let cycles = dependency_cycles(&info);
+        assert_eq!(cycles.len(), 1);
+        let cyc = &cycles[0];
+        assert!(cyc.contains(&"crate_a".to_string()));
+        assert!(cyc.contains(&"crate_b".to_string()));
+    }
 }
