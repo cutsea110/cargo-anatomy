@@ -94,21 +94,19 @@ mod graphviz_dot {
 
     fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
         let mut set = HashSet::new();
-        for map in details.external_depends_on.values() {
-            if let Some(types) = map.get(target) {
-                for ty in types {
-                    set.insert(ty.clone());
-                }
+        for (class, map) in &details.external_depends_on {
+            if map.contains_key(target) {
+                set.insert(class.clone());
             }
         }
         set.len()
     }
 
-    fn afferent_couples(details: &CrateDetails, from: &str) -> usize {
+    fn afferent_couples(details: &CrateDetails, src: &str) -> usize {
         let mut set = HashSet::new();
-        for (ty, crate_map) in &details.external_depended_by {
-            if crate_map.contains_key(from) {
-                set.insert(ty.clone());
+        for (class, map) in &details.external_depends_on {
+            if map.contains_key(src) {
+                set.insert(class.clone());
             }
         }
         set.len()
