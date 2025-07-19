@@ -164,6 +164,83 @@ mod graphviz_dot {
     }
 }
 
+mod mermaid {
+    use super::{CrateDetails, OutputEntry, OutputRoot};
+    use std::collections::HashSet;
+
+    fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
+        details
+            .external_depends_on
+            .iter()
+            .filter(|(_, map)| map.contains_key(target))
+            .count()
+    }
+
+    fn sanitize(name: &str) -> String {
+        name.replace('-', "_")
+    }
+
+    pub(super) fn to_string(
+        root: &OutputRoot<OutputEntry>,
+        name_map: &[(String, String)],
+        label_edges: bool,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut out = String::new();
+        out.push_str("graph LR\n");
+
+        for (i, (crate_name, _)) in name_map.iter().enumerate() {
+            if let Some(entry) = root.crates.get(i) {
+                let id = sanitize(crate_name);
+                let m = &entry.metrics;
+                let e = &entry.evaluation;
+                out.push_str(&format!(
+                    "    {}[\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"]\n",
+                    id,
+                    crate_name,
+                    m.n,
+                    m.r,
+                    m.h,
+                    m.ca,
+                    m.ce,
+                    m.a,
+                    m.i,
+                    m.d_prime,
+                    e.a,
+                    e.h,
+                    e.i,
+                    e.d_prime,
+                ));
+            }
+        }
+
+        let mut edges = HashSet::new();
+
+        for (i, (src, _)) in name_map.iter().enumerate() {
+            if let Some(src_entry) = root.crates.get(i) {
+                if let Some(src_details) = &src_entry.details {
+                    for maps in src_details.external_depends_on.values() {
+                        for (dst, _) in maps {
+                            if !edges.insert((src.clone(), dst.clone())) {
+                                continue;
+                            }
+                            let id_src = sanitize(src);
+                            let id_dst = sanitize(dst);
+                            let ec = efferent_couples(src_details, dst);
+                            if label_edges {
+                                out.push_str(&format!("    {} --|{}| {}\n", id_src, ec, id_dst));
+                            } else {
+                                out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(out)
+    }
+}
+
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
@@ -224,6 +301,7 @@ where
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
         "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
+        "mermaid" => cargo_anatomy::loc_try!(mermaid::to_string(&root, name_map, label_edges)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -248,7 +326,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Include external dependencies in analysis (slower)",
     );
     opts.optflag("V", "version", "Show version information");
-    opts.optopt("o", "output", "Output format: json, yaml or dot", "FORMAT");
+    opts.optopt(
+        "o",
+        "output",
+        "Output format: json, yaml, dot or mermaid",
+        "FORMAT",
+    );
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 

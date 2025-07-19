@@ -95,6 +95,31 @@ fn outputs_dot() {
 }
 
 #[test]
+fn outputs_mermaid() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("foo-bar")).unwrap();
+    std::fs::create_dir(dir.path().join("foo-bar/src")).unwrap();
+    std::fs::write(
+        dir.path().join("foo-bar/Cargo.toml"),
+        "[package]\nname = \"foo-bar\"\nversion = \"0.1.0\"\n[lib]\nname = \"foo_bar\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("foo-bar/src/lib.rs"), "pub struct Foo;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"foo-bar\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("graph LR"));
+    assert!(s.contains("foo_bar"));
+}
+
+#[test]
 fn custom_lib_path() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("foo/app")).unwrap();
