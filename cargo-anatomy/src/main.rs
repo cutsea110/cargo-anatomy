@@ -88,6 +88,66 @@ struct OutputRoot<T: Serialize> {
     warnings: Warnings,
 }
 
+mod graphviz_dot {
+    use super::{OutputEntry, OutputRoot};
+    use std::collections::HashSet;
+
+    pub(super) fn to_string(
+        root: &OutputRoot<OutputEntry>,
+        name_map: &[(String, String)],
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut out = String::new();
+        out.push_str("digraph cargo_anatomy {\n");
+        out.push_str("    rankdir=LR;\n");
+        out.push_str("    node [shape=box];\n");
+
+        for (i, (crate_name, _)) in name_map.iter().enumerate() {
+            if let Some(entry) = root.crates.get(i) {
+                let m = &entry.metrics;
+                let e = &entry.evaluation;
+                out.push_str(&format!(
+                    "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
+                    crate_name,
+                    crate_name,
+                    m.n,
+                    m.r,
+                    m.h,
+                    m.ca,
+                    m.ce,
+                    m.a,
+                    m.i,
+                    m.d_prime,
+                    e.a,
+                    e.h,
+                    e.i,
+                    e.d_prime,
+                ));
+            }
+        }
+
+        let mut edges = HashSet::new();
+        for (i, (src, _)) in name_map.iter().enumerate() {
+            if let Some(entry) = root.crates.get(i) {
+                if let Some(details) = &entry.details {
+                    for maps in details.external_depends_on.values() {
+                        for (dst, _) in maps {
+                            if edges.insert((src.clone(), dst.clone())) {
+                                out.push_str(&format!(
+                                    "    \"{}\" -> \"{}\" [label=\"Ca={} Ce={}\"];\n",
+                                    src, dst, entry.metrics.ca, entry.metrics.ce
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        out.push_str("}\n");
+        Ok(out)
+    }
+}
+
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
@@ -146,6 +206,7 @@ where
     let out_str = match format {
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
+        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -170,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Include external dependencies in analysis (slower)",
     );
     opts.optflag("V", "version", "Show version information");
-    opts.optopt("o", "output", "Output format: json or yaml", "FORMAT");
+    opts.optopt("o", "output", "Output format: json, yaml or dot", "FORMAT");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 
@@ -249,7 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let cycles = cargo_anatomy::dependency_cycles(&details_map);
 
-    if show_all {
+    if show_all || format == "dot" {
         cargo_anatomy::loc_try!(emit_results(details_map, &name_map, cycles, &format));
     } else {
         let metrics_map: HashMap<String, cargo_anatomy::Metrics> = details_map
