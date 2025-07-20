@@ -410,7 +410,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let cycles = cargo_anatomy::dependency_cycles(&details_map);
 
-    if show_all || format == "dot" {
+    if show_all {
         cargo_anatomy::loc_try!(emit_results(
             details_map,
             &name_map,
