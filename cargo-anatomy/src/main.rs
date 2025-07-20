@@ -46,7 +46,11 @@ fn print_help(opts: &Options) {
 
 fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
     for target in &pkg.targets {
-        if target.kind.iter().any(|k| k == "lib") {
+        if target
+            .kind
+            .iter()
+            .any(|k| matches!(k, cargo_metadata::TargetKind::Lib))
+        {
             return target.name.clone();
         }
     }
@@ -392,7 +396,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let files = cargo_anatomy::loc_try!(parse_package(package));
-        name_map.push((crate_name.clone(), package.name.clone()));
+        name_map.push((crate_name.clone(), package.name.to_string()));
         let kind = if metadata.workspace_members.contains(&package.id) {
             CrateKind::Workspace
         } else {
