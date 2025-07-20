@@ -7,6 +7,27 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
+const METRICS_HELP: &[&str] = &[
+    "Metrics:",
+    "  N  - number of classes",
+    "  R  - number of internal class relationships",
+    "  H  - relational cohesion: (R + 1)/N",
+    "  Ca - afferent coupling: external classes that depend on this crate",
+    "  Ce - efferent coupling: classes in this crate depending on other workspace crates",
+    "  A  - abstraction: traits / N",
+    "  I  - instability: Ce / (Ce + Ca)",
+    "  D  - distance from main sequence: |A + I - 1| / sqrt(2)",
+    "  D' - normalized distance: |A + I - 1|",
+];
+
+const EVALUATION_HELP: &[&str] = &[
+    "Evaluation:",
+    "  A  - >=0.7 abstract, <=0.3 concrete, otherwise mixed",
+    "  H  - >1.0 high, otherwise low",
+    "  I  - >=0.7 unstable, <=0.3 stable, otherwise moderate",
+    "  D' - <=0.4 good; >=0.6 useless if A+I-1 >= 0 else painful; otherwise balanced",
+];
+
 fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     let brief = format!(
         "cargo-anatomy {}\nUsage: cargo anatomy [options]",
@@ -15,28 +36,9 @@ fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     write!(w, "{}", opts.usage(&brief))?;
     writeln!(w)?;
 
-    let metrics = [
-        "Metrics:",
-        "  N  - number of classes",
-        "  R  - number of internal class relationships",
-        "  H  - relational cohesion: (R + 1)/N",
-        "  Ca - afferent coupling: external classes that depend on this crate",
-        "  Ce - efferent coupling: classes in this crate depending on other workspace crates",
-        "  A  - abstraction: traits / N",
-        "  I  - instability: Ce / (Ce + Ca)",
-        "  D  - distance from main sequence: |A + I - 1| / sqrt(2)",
-        "  D' - normalized distance: |A + I - 1|",
-    ];
-    writeln!(w, "{}", metrics.join("\n"))?;
+    writeln!(w, "{}", METRICS_HELP.join("\n"))?;
 
-    let evaluation = [
-        "Evaluation:",
-        "  A  - >=0.7 abstract, <=0.3 concrete, otherwise mixed",
-        "  H  - >1.0 high, otherwise low",
-        "  I  - >=0.7 unstable, <=0.3 stable, otherwise moderate",
-        "  D' - <=0.4 good; >=0.6 useless if A+I-1 >= 0 else painful; otherwise balanced",
-    ];
-    writeln!(w, "{}", evaluation.join("\n"))?;
+    writeln!(w, "{}", EVALUATION_HELP.join("\n"))?;
     Ok(())
 }
 

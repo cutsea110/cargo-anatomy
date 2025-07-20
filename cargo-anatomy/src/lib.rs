@@ -11,6 +11,9 @@ use syn::{visit::Visit, File};
 use walkdir::WalkDir;
 
 /// Wrap an error with file and line information.
+///
+/// This helper is mainly used by the `loc_try!` macro so that any propagated
+/// error retains its originating call site, which simplifies debugging.
 #[track_caller]
 pub fn error_with_location<E>(err: E) -> Box<dyn std::error::Error>
 where
@@ -140,7 +143,9 @@ pub struct MetricsResult {
     pub evaluation: Evaluation,
 }
 
-/// Assign qualitative labels to metrics.
+/// Assign qualitative labels to numerical metrics.
+///
+/// Thresholds loosely follow the metrics described in Robert C. Martin's *Agile Software Development*.
 pub fn evaluate_metrics(m: &Metrics) -> Evaluation {
     let a_label = if m.a >= 0.7 {
         AbstractionEval::Abstract
@@ -381,12 +386,8 @@ pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     map
 }
 /// Parse all Rust source files belonging to the given package.
-pub fn parse_package(
-    package: &cargo_metadata::Package,
-) -> Result<Vec<File>, Box<dyn std::error::Error>> {
-    info!("reading crate {}", package.name);
+fn package_source_dirs(package: &cargo_metadata::Package) -> HashSet<std::path::PathBuf> {
     let manifest_dir = package.manifest_path.parent().unwrap();
-
     let mut dirs = HashSet::new();
     for target in &package.targets {
         if target
@@ -394,8 +395,7 @@ pub fn parse_package(
             .iter()
             .any(|k| matches!(k, cargo_metadata::TargetKind::Lib | cargo_metadata::TargetKind::Bin))
         {
-            let src_path = std::path::Path::new(&target.src_path);
-            if let Some(parent) = src_path.parent() {
+            if let Some(parent) = std::path::Path::new(&target.src_path).parent() {
                 dirs.insert(parent.to_path_buf());
             }
         }
@@ -403,31 +403,48 @@ pub fn parse_package(
     if dirs.is_empty() {
         dirs.insert(manifest_dir.join("src").into());
     }
+    dirs
+}
 
+fn parse_dir(dir: &std::path::Path) -> Result<Vec<File>, Box<dyn std::error::Error>> {
     let mut files = Vec::new();
-    for dir in dirs {
-        for entry in WalkDir::new(dir) {
-            let entry = crate::loc_try!(entry);
-            if entry.file_type().is_file()
-                && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-            {
-                // Skip integration tests located under `tests/`. Cargo treats files
-                // in this directory as separate crates, so they do not represent
-                // types defined by the package itself.
-                // https://doc.rust-lang.org/cargo/guide/tests.html#integration-tests
-                if entry.path().components().any(|c| c.as_os_str() == "tests") {
-                    continue;
-                }
-                debug!("parsing {}", entry.path().display());
-                let content = crate::loc_try!(fs::read_to_string(entry.path()));
-                let file = crate::loc_try!(syn::parse_file(&content));
-                files.push(file);
+    for entry in WalkDir::new(dir) {
+        let entry = crate::loc_try!(entry);
+        if entry.file_type().is_file()
+            && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
+        {
+            if entry.path().components().any(|c| c.as_os_str() == "tests") {
+                continue;
             }
+            debug!("parsing {}", entry.path().display());
+            let content = crate::loc_try!(fs::read_to_string(entry.path()));
+            let file = crate::loc_try!(syn::parse_file(&content));
+            files.push(file);
         }
     }
     Ok(files)
 }
-/// Parse and analyze a single package.
+
+/// Parse all Rust source files belonging to the given package.
+///
+/// Every library or binary target's source directory is scanned (or `src/` when no targets declare a path) and any `.rs`
+/// files found are parsed into `syn::File` structures. Files located under a
+/// `tests` directory are skipped since Cargo treats integration tests as
+/// separate crates.
+pub fn parse_package(
+    package: &cargo_metadata::Package,
+) -> Result<Vec<File>, Box<dyn std::error::Error>> {
+    info!("reading crate {}", package.name);
+    let mut files = Vec::new();
+    for dir in package_source_dirs(package) {
+        files.extend(parse_dir(&dir)?);
+    }
+    Ok(files)
+}
+/// Parse a package's source files and compute metrics.
+///
+/// The provided `workspace_types` should contain class names from all crates
+/// in the workspace so that internal/external references are classified correctly.
 pub fn analyze_package(
     package: &cargo_metadata::Package,
     workspace_types: &HashSet<String>,
@@ -436,6 +453,8 @@ pub fn analyze_package(
     Ok(analyze_files(&files, workspace_types))
 }
 /// Analyze parsed files to produce package metrics.
+///
+/// `workspace_types` should contain all type names defined in the workspace so references can be counted as internal or external.
 pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metrics {
     debug!("collecting definitions from {} files", files.len());
     let (defined, abstract_count) = collect_defined(files);
@@ -494,6 +513,8 @@ pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metri
 }
 
 /// Analyse multiple crates together so cross-crate dependencies can be counted.
+///
+/// Each entry is a crate name paired with its parsed source files.
 pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metrics> {
     analyze_workspace_details(crates)
         .into_iter()
@@ -501,6 +522,8 @@ pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metr
         .collect()
 }
 /// Return metrics and dependency graphs for multiple crates.
+///
+/// This function performs a deeper analysis than `analyze_workspace` by tracking type-level dependencies between crates.
 pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<String, CrateDetail> {
     debug!("analysing {} crates", crates.len());
 
@@ -697,6 +720,8 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
 }
 
 /// Determine dependency cycles between crates based on analysis details.
+///
+/// Internally uses Tarjan's strongly connected components algorithm.
 pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<String>> {
     // Build adjacency list of crate -> crates it depends on
     let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
@@ -1069,90 +1094,79 @@ impl<'a> DetailVisitor<'a> {
         }
     }
 
-    fn infer_expr_type(&self, expr: &syn::Expr) -> Option<(String, Option<String>)> {
-        match expr {
-            syn::Expr::Call(call) => {
-                if let syn::Expr::Path(p) = &*call.func {
-                    if p.path.segments.len() >= 2 {
-                        let func = p.path.segments.last().unwrap().ident.to_string();
-                        let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
-                        if let Some(ret) = self.methods.get(&(ty.clone(), func.clone())) {
-                            let root = self.path_root(&p.path);
-                            return Some((ret.clone(), root));
-                        }
-                    }
-                    if let Some(seg) = p.path.segments.last() {
-                        let name = seg.ident.to_string();
-                        if self.defined.contains_key(&name)
-                            || self.all_defined.values().any(|d| d.contains_key(&name))
-                        {
-                            let root = self.path_root(&p.path);
-                            return Some((name, root));
-                        }
-                    }
+    fn infer_from_call(&self, call: &syn::ExprCall) -> Option<(String, Option<String>)> {
+        if let syn::Expr::Path(p) = &*call.func {
+            if p.path.segments.len() >= 2 {
+                let func = p.path.segments.last().unwrap().ident.to_string();
+                let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
+                if let Some(ret) = self.methods.get(&(ty.clone(), func.clone())) {
+                    let root = self.path_root(&p.path);
+                    return Some((ret.clone(), root));
                 }
-                None
             }
-            syn::Expr::MethodCall(mc) => {
-                if let Some((receiver_ty, root)) = self.infer_expr_type(&mc.receiver) {
-                    if let Some(ret) = self
-                        .methods
-                        .get(&(receiver_ty.clone(), mc.method.to_string()))
-                    {
-                        return Some((ret.clone(), root));
-                    }
-                    if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
-                        let mut found = None;
-                        for b in bounds {
-                            if let Some(ret) = self.methods.get(&(b.clone(), mc.method.to_string()))
-                            {
-                                if found.is_some() {
-                                    return None;
-                                }
-                                found = Some(ret.clone());
-                            }
-                        }
-                        if let Some(ret) = found {
-                            return Some((ret, None));
-                        }
-                    }
-                    return Some((receiver_ty, root));
+            if let Some(seg) = p.path.segments.last() {
+                let name = seg.ident.to_string();
+                if self.defined.contains_key(&name) || self.all_defined.values().any(|d| d.contains_key(&name)) {
+                    let root = self.path_root(&p.path);
+                    return Some((name, root));
                 }
+            }
+        }
+        None
+    }
 
-                // Try to infer from a uniquely named method when receiver type is
-                // unknown. This allows chained calls like `self.inner.dao()`
-                // where `dao` is defined only on a trait.
-                let mut ret = None;
-                for ((_, name), r) in self.methods.iter() {
-                    if name == &mc.method.to_string() {
-                        if ret.is_some() {
-                            // Ambiguous method name
+    fn infer_from_method_call(&self, mc: &syn::ExprMethodCall) -> Option<(String, Option<String>)> {
+        if let Some((receiver_ty, root)) = self.infer_expr_type(&mc.receiver) {
+            if let Some(ret) = self.methods.get(&(receiver_ty.clone(), mc.method.to_string())) {
+                return Some((ret.clone(), root));
+            }
+            if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
+                let mut found = None;
+                for b in bounds {
+                    if let Some(ret) = self.methods.get(&(b.clone(), mc.method.to_string())) {
+                        if found.is_some() {
                             return None;
                         }
-                        // Returning the trait or type's return type
-                        ret = Some(r.clone());
+                        found = Some(ret.clone());
                     }
                 }
-                ret.map(|r| (r, None))
-            }
-            syn::Expr::Path(p) => {
-                if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
-                    return self
-                        .current
-                        .as_ref()
-                        .map(|c| (c.clone(), Some(self.crate_name.to_string())));
+                if let Some(ret) = found {
+                    return Some((ret, None));
                 }
-                if let Some(seg) = p.path.segments.last() {
-                    let name = seg.ident.to_string();
-                    if self.defined.contains_key(&name)
-                        || self.all_defined.values().any(|d| d.contains_key(&name))
-                    {
-                        let root = self.path_root(&p.path);
-                        return Some((name, root));
-                    }
-                }
-                None
             }
+            return Some((receiver_ty, root));
+        }
+        let mut ret = None;
+        for ((_, name), r) in self.methods.iter() {
+            if name == &mc.method.to_string() {
+                if ret.is_some() {
+                    return None;
+                }
+                ret = Some(r.clone());
+            }
+        }
+        ret.map(|r| (r, None))
+    }
+
+    fn infer_from_path(&self, p: &syn::ExprPath) -> Option<(String, Option<String>)> {
+        if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
+            return self.current.as_ref().map(|c| (c.clone(), Some(self.crate_name.to_string())));
+        }
+        if let Some(seg) = p.path.segments.last() {
+            let name = seg.ident.to_string();
+            if self.defined.contains_key(&name) || self.all_defined.values().any(|d| d.contains_key(&name)) {
+                let root = self.path_root(&p.path);
+                return Some((name, root));
+            }
+        }
+        None
+    }
+
+    fn infer_expr_type(&self, expr: &syn::Expr) -> Option<(String, Option<String>)> {
+        match expr {
+            syn::Expr::Call(call) => self.infer_from_call(call),
+            syn::Expr::MethodCall(mc) => self.infer_from_method_call(mc),
+            syn::Expr::Path(p) => self.infer_from_path(p),
             _ => None,
         }
     }
@@ -1885,5 +1899,144 @@ mod tests {
         let cyc = &cycles[0];
         assert!(cyc.contains(&"crate_a".to_string()));
         assert!(cyc.contains(&"crate_b".to_string()));
+    }
+
+    #[test]
+    fn parse_package_ignores_tests_dir() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pkg/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("pkg/tests")).unwrap();
+        std::fs::write(
+            dir.path().join("pkg/Cargo.toml"),
+            "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct Foo;\n").unwrap();
+        std::fs::write(dir.path().join("pkg/tests/integration.rs"), "pub struct Bar;\n").unwrap();
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path().join("pkg"))
+            .exec()
+            .unwrap();
+        let package = metadata.packages.first().unwrap();
+        let files = parse_package(package).unwrap();
+        assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn path_root_resolves_special_paths() {
+        let defined = std::collections::HashMap::new();
+        let mut ws = std::collections::HashSet::new();
+        ws.insert("my_crate".to_string());
+        let visitor = DetailVisitor {
+            current: None,
+            defined: &defined,
+            crate_name: "my_crate",
+            workspace_crates: &ws,
+            all_defined: &std::collections::HashMap::new(),
+            imports: std::collections::HashMap::new(),
+            internal: std::collections::HashMap::new(),
+            external: std::collections::HashMap::new(),
+            methods: &std::collections::HashMap::new(),
+            trait_bounds: &std::collections::HashMap::new(),
+        };
+        let p: syn::Path = syn::parse_str("self::Foo").unwrap();
+        assert_eq!(visitor.path_root(&p), Some("my_crate".to_string()));
+        let p: syn::Path = syn::parse_str("super::bar::Baz").unwrap();
+        assert_eq!(visitor.path_root(&p), Some("my_crate".to_string()));
+        let p: syn::Path = syn::parse_str("crate::Foo").unwrap();
+        assert_eq!(visitor.path_root(&p), Some("my_crate".to_string()));
+    }
+
+    #[test]
+    fn infer_expr_type_special_paths() {
+        use std::collections::{HashMap, HashSet};
+        let mut defined = HashMap::new();
+        defined.insert("Foo".to_string(), ClassKind::Struct);
+        let mut ws = HashSet::new();
+        ws.insert("my_crate".to_string());
+        let visitor = DetailVisitor {
+            current: Some("Current".to_string()),
+            defined: &defined,
+            crate_name: "my_crate",
+            workspace_crates: &ws,
+            all_defined: &HashMap::new(),
+            imports: HashMap::new(),
+            internal: HashMap::new(),
+            external: HashMap::new(),
+            methods: &HashMap::new(),
+            trait_bounds: &HashMap::new(),
+        };
+        let e: syn::Expr = syn::parse_str("self").unwrap();
+        assert_eq!(
+            visitor.infer_expr_type(&e),
+            Some(("Current".to_string(), Some("my_crate".to_string())))
+        );
+        let e: syn::Expr = syn::parse_str("self::Foo").unwrap();
+        assert_eq!(
+            visitor.infer_expr_type(&e),
+            Some(("Foo".to_string(), Some("my_crate".to_string())))
+        );
+        let e: syn::Expr = syn::parse_str("super::Foo").unwrap();
+        assert_eq!(
+            visitor.infer_expr_type(&e),
+            Some(("Foo".to_string(), Some("my_crate".to_string())))
+        );
+        let e: syn::Expr = syn::parse_str("crate::Foo").unwrap();
+        assert_eq!(
+            visitor.infer_expr_type(&e),
+            Some(("Foo".to_string(), Some("my_crate".to_string())))
+        );
+    }
+
+    #[test]
+    fn detects_multiple_cycles() {
+        let src_a = "use crate_b::B; pub struct A(B);";
+        let src_b = "use crate_a::A; pub struct B(A);";
+        let src_c = "use crate_d::D; pub struct C(D);";
+        let src_d = "use crate_c::C; pub struct D(C);";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+        let file_d: syn::File = syn::parse_str(src_d).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+            ("crate_c".to_string(), vec![file_c]),
+            ("crate_d".to_string(), vec![file_d]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let mut cycles = dependency_cycles(&info);
+        cycles.sort_by(|a, b| a[0].cmp(&b[0]));
+        assert_eq!(cycles.len(), 2);
+        assert!(cycles[0].contains(&"crate_a".to_string()));
+        assert!(cycles[0].contains(&"crate_b".to_string()));
+        assert!(cycles[1].contains(&"crate_c".to_string()));
+        assert!(cycles[1].contains(&"crate_d".to_string()));
+    }
+
+    #[test]
+    fn detects_no_cycles() {
+        let src_a = "use crate_b::B; pub struct A(B);";
+        let src_b = "pub struct B;";
+        let src_c = "use crate_b::B; pub struct C(B);";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a]),
+            ("crate_b".to_string(), vec![file_b]),
+            ("crate_c".to_string(), vec![file_c]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let cycles = dependency_cycles(&info);
+        assert!(cycles.is_empty());
     }
 }
