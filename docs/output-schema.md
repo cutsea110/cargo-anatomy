@@ -69,7 +69,7 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
 ```json
 {
   "meta": {
-    "cargo-anatomy": { "version": "0.5.0", "target": "x86_64-unknown-linux-gnu" },
+    "cargo-anatomy": { "version": "0.5.0", "target": "linux/x86_64" },
     "config": {
       "evaluation": {
         "abstraction": { "abstract_min": 0.7, "concrete_max": 0.3 },
