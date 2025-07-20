@@ -144,7 +144,7 @@ pub struct MetricsResult {
 }
 
 /// Threshold values used when evaluating metrics.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EvaluationThresholds {
     #[serde(default)]
     pub abstraction: AbstractionThresholds,
@@ -157,7 +157,7 @@ pub struct EvaluationThresholds {
 }
 
 /// Root structure for configuration files.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub evaluation: EvaluationThresholds,
@@ -182,7 +182,7 @@ impl Default for EvaluationThresholds {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AbstractionThresholds {
     #[serde(default = "default_abstract_min")]
     pub abstract_min: f64,
@@ -207,7 +207,7 @@ impl Default for AbstractionThresholds {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CohesionThresholds {
     #[serde(default = "default_high_gt")]
     pub high_gt: f64,
@@ -225,7 +225,7 @@ impl Default for CohesionThresholds {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InstabilityThresholds {
     #[serde(default = "default_unstable_min")]
     pub unstable_min: f64,
@@ -250,7 +250,7 @@ impl Default for InstabilityThresholds {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DistanceThresholds {
     #[serde(default = "default_good_max")]
     pub good_max: f64,

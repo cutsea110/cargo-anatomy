@@ -124,8 +124,21 @@ struct Warnings {
     dependency_cycles: Vec<Vec<String>>,
 }
 
+#[derive(Serialize, Clone)]
+struct ToolInfo {
+    version: &'static str,
+}
+
+#[derive(Serialize, Clone)]
+struct Meta {
+    #[serde(rename = "cargo-anatomy")]
+    cargo_anatomy: ToolInfo,
+    config: cargo_anatomy::Config,
+}
+
 #[derive(Serialize)]
 struct OutputRoot<T: Serialize> {
+    meta: Meta,
     crates: Vec<T>,
     warnings: Warnings,
 }
@@ -328,6 +341,7 @@ fn emit_results<T>(
     cycles: Vec<Vec<String>>,
     format: &str,
     label_edges: bool,
+    config: cargo_anatomy::Config,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     T: IntoOutput,
@@ -339,6 +353,12 @@ where
         }
     }
     let root = OutputRoot {
+        meta: Meta {
+            cargo_anatomy: ToolInfo {
+                version: env!("CARGO_PKG_VERSION"),
+            },
+            config,
+        },
         crates: out,
         warnings: Warnings {
             dependency_cycles: cycles,
@@ -431,6 +451,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             cargo_anatomy::EvaluationThresholds::default()
         };
+    let config_used = cargo_anatomy::Config {
+        evaluation: eval_thresholds.clone(),
+    };
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();
@@ -487,7 +510,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &name_map,
             cycles,
             &format,
-            show_all
+            show_all,
+            config_used.clone()
         ));
     } else {
         let metrics_map: HashMap<String, MetricsWithEval> = details_map
@@ -506,7 +530,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);
         }
-        cargo_anatomy::loc_try!(emit_results(metrics_map, &name_map, cycles, &format, false));
+        cargo_anatomy::loc_try!(emit_results(
+            metrics_map,
+            &name_map,
+            cycles,
+            &format,
+            false,
+            config_used
+        ));
     }
     Ok(())
 }

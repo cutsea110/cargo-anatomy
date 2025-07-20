@@ -2,10 +2,11 @@
 
 This document describes the JSON/YAML output produced by `cargo anatomy`.
 When using `-o dot`, the tool outputs a Graphviz DOT graph instead which is not detailed here. The `-o mermaid` option similarly emits a Mermaid diagram.
-The command prints a single object with two sections:
+The command prints a single object with three sections:
 
 ```json
 {
+  "meta": { ... },
   "crates": [ { "crate_name": "pkg", ... } ],
   "warnings": { "dependency_cycles": [] }
 }
@@ -16,6 +17,9 @@ includes the crate name, its computed metrics and the evaluation labels. When
 the `-a` flag is used a `details` object is also present containing class and
 dependency information. The `warnings` object aggregates workspace wide
 notices such as detected dependency cycles.
+
+The `meta` object records the version of `cargo-anatomy` and the configuration
+values used for the run.
 
 ## Metrics Object
 
@@ -64,6 +68,17 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
 
 ```json
 {
+  "meta": {
+    "cargo-anatomy": { "version": "0.5.0" },
+    "config": {
+      "evaluation": {
+        "abstraction": { "abstract_min": 0.7, "concrete_max": 0.3 },
+        "cohesion": { "high_gt": 1.0 },
+        "instability": { "unstable_min": 0.7, "stable_max": 0.3 },
+        "distance": { "good_max": 0.4, "bad_min": 0.6 }
+      }
+    }
+  },
   "crates": [
     {
       "crate_name": "my_crate",

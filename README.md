@@ -79,6 +79,17 @@ See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main
 
 ```json
 {
+  "meta": {
+    "cargo-anatomy": { "version": "0.5.0" },
+    "config": {
+      "evaluation": {
+        "abstraction": { "abstract_min": 0.7, "concrete_max": 0.3 },
+        "cohesion": { "high_gt": 1.0 },
+        "instability": { "unstable_min": 0.7, "stable_max": 0.3 },
+        "distance": { "good_max": 0.4, "bad_min": 0.6 }
+      }
+    }
+  },
   "crates": [
     {
       "crate_name": "my_crate",

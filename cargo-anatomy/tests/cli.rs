@@ -206,6 +206,7 @@ fn include_external_crate() {
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     let obj = v.as_object().unwrap();
+    assert!(obj.get("meta").is_some());
     let arr = obj.get("crates").unwrap().as_array().unwrap();
     let mut map = std::collections::HashMap::new();
     for item in arr {
@@ -251,6 +252,7 @@ fn includes_evaluation_labels() {
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     let obj = v.as_object().unwrap();
+    assert!(obj.get("meta").is_some());
     let arr = obj.get("crates").unwrap().as_array().unwrap();
     let entry = &arr[0];
     assert!(entry.get("evaluation").is_some());
@@ -455,6 +457,7 @@ fn external_crate_excluded_without_x() {
     cmd.current_dir(ws.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(v.get("meta").is_some());
     let arr = v.get("crates").unwrap().as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["crate_name"].as_str().unwrap(), "app");
@@ -475,6 +478,7 @@ fn custom_config_thresholds() {
     cmd.args(["-c", "anatomy.toml"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(v.get("meta").is_some());
     let arr = v.get("crates").unwrap().as_array().unwrap();
     assert_eq!(arr[0]["evaluation"]["a"], "abstract");
 }
