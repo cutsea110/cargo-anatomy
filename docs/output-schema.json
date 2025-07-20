@@ -121,8 +121,11 @@
       "properties": {
         "cargo-anatomy": {
           "type": "object",
-          "properties": { "version": { "type": "string" } },
-          "required": ["version"],
+          "properties": {
+            "version": { "type": "string" },
+            "target": { "type": "string" }
+          },
+          "required": ["version", "target"],
           "additionalProperties": false
         },
         "config": { "$ref": "#/definitions/Config" }

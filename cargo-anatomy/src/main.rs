@@ -127,6 +127,7 @@ struct Warnings {
 #[derive(Serialize, Clone)]
 struct ToolInfo {
     version: &'static str,
+    target: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -356,6 +357,7 @@ where
         meta: Meta {
             cargo_anatomy: ToolInfo {
                 version: env!("CARGO_PKG_VERSION"),
+                target: format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
             },
             config,
         },

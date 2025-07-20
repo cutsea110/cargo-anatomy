@@ -18,8 +18,8 @@ the `-a` flag is used a `details` object is also present containing class and
 dependency information. The `warnings` object aggregates workspace wide
 notices such as detected dependency cycles.
 
-The `meta` object records the version of `cargo-anatomy` and the configuration
-values used for the run.
+The `meta` object records the version of `cargo-anatomy`, the build target and
+the configuration values used for the run.
 
 ## Metrics Object
 
@@ -69,7 +69,7 @@ The following is a shortened example after running `cargo anatomy -a | jq`:
 ```json
 {
   "meta": {
-    "cargo-anatomy": { "version": "0.5.0" },
+    "cargo-anatomy": { "version": "0.5.0", "target": "x86_64-unknown-linux-gnu" },
     "config": {
       "evaluation": {
         "abstraction": { "abstract_min": 0.7, "concrete_max": 0.3 },
