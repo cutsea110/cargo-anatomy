@@ -227,7 +227,7 @@ mod mermaid {
                             let id_dst = sanitize(dst);
                             let ec = efferent_couples(src_details, dst);
                             if label_edges {
-                                out.push_str(&format!("    {} --|{}| {}\n", id_src, ec, id_dst));
+                                out.push_str(&format!("    {} --|{}|--> {}\n", id_src, ec, id_dst));
                             } else {
                                 out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
                             }

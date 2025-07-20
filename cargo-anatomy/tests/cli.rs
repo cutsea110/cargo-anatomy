@@ -335,3 +335,74 @@ fn dot_without_a_has_no_edge_labels() {
     assert!(s.contains("\"a\" -> \"b\""));
     assert!(!s.contains("taillabel="));
 }
+
+#[test]
+fn mermaid_edge_couples() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\npub struct Y1(pub crate_b::Y2);\npub struct Z1;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/src/lib.rs"),
+        "pub struct X2;\npub struct Y2;\npub struct Z2(pub crate_a::X1);\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("crate_a --|2|--> crate_b"));
+}
+
+#[test]
+fn mermaid_without_a_has_no_edge_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("a/Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("b/Cargo.toml"),
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a/src/lib.rs"), "pub struct A(pub b::B);\n").unwrap();
+    std::fs::write(dir.path().join("b/src/lib.rs"), "pub struct B;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-o", "mermaid"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("a["));
+    assert!(s.contains("b["));
+    assert!(!s.contains("--|"));
+    assert!(!s.contains("-->"));
+}
