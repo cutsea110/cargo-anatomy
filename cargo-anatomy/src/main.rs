@@ -250,7 +250,7 @@ mod mermaid {
                 let m = &entry.metrics;
                 let e = &entry.evaluation;
                 out.push_str(&format!(
-                    "    {}[\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"]\n",
+                    "    {}[\"{}<br/>n={} r={} h={:.2}<br/>ca={} ce={} a={:.2} i={:.2} d'={:.2}<br/>A={:?} H={:?} I={:?} D'={:?}\"]\n",
                     id,
                     crate_name,
                     m.n,
