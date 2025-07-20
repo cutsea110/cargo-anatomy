@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2025-07-20
+### Fixed
+- Corrected newline handling in Mermaid output boxes.
+
 ## [0.4.0] - 2025-07-20
 ### Added
 - Mermaid graph output format.
