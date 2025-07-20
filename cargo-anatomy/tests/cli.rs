@@ -479,3 +479,15 @@ fn custom_config_thresholds() {
     assert_eq!(arr[0]["evaluation"]["a"], "abstract");
 }
 
+#[test]
+fn init_creates_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("init").current_dir(dir.path());
+    cmd.assert().success();
+    let path = dir.path().join("anatomy.conf");
+    assert!(path.exists());
+    let contents = std::fs::read_to_string(path).unwrap();
+    assert!(contents.contains("[evaluation]"));
+    assert!(contents.contains("abstract_min"));
+}
