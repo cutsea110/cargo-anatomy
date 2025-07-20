@@ -460,3 +460,22 @@ fn external_crate_excluded_without_x() {
     assert_eq!(arr[0]["crate_name"].as_str().unwrap(), "app");
 }
 
+#[test]
+fn custom_config_thresholds() {
+    let dir = create_workspace(&[("pkg", "pub trait T {} pub struct S;\n")]);
+    let config = r#"
+[evaluation]
+  [evaluation.abstraction]
+  abstract_min = 0.4
+  concrete_max = 0.3
+"#;
+    std::fs::write(dir.path().join("anatomy.toml"), config).unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-c", "anatomy.toml"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    assert_eq!(arr[0]["evaluation"]["a"], "abstract");
+}
+

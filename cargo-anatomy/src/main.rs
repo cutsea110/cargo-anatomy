@@ -1,5 +1,5 @@
 //! CLI entry point for the cargo-anatomy tool.
-use cargo_anatomy::{analyze_workspace_details, parse_package, CrateKind};
+use cargo_anatomy::{analyze_workspace_details_with_thresholds, parse_package, CrateKind};
 use env_logger;
 use getopts::Options;
 use log::info;
@@ -251,13 +251,19 @@ trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
 
-impl IntoOutput for cargo_anatomy::Metrics {
+
+#[derive(Clone, Serialize)]
+struct MetricsWithEval {
+    metrics: cargo_anatomy::Metrics,
+    evaluation: cargo_anatomy::Evaluation,
+}
+
+impl IntoOutput for MetricsWithEval {
     fn into_output(self, package_name: String) -> OutputEntry {
-        let eval = cargo_anatomy::evaluate_metrics(&self);
         OutputEntry {
             crate_name: package_name,
-            metrics: self,
-            evaluation: eval,
+            metrics: self.metrics,
+            evaluation: self.evaluation,
             details: None,
         }
     }
@@ -338,6 +344,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Output format: json, yaml, dot or mermaid",
         "FORMAT",
     );
+    opts.optopt(
+        "c",
+        "config",
+        "Path to evaluation config file",
+        "FILE",
+    );
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 
@@ -366,6 +378,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
         .unwrap_or_else(|| "json".to_string());
+    let eval_thresholds = if let Some(path) = matches
+        .opt_str("c")
+        .or_else(|| matches.opt_str("config"))
+    {
+        match std::fs::read_to_string(&path) {
+            Ok(s) => match toml::from_str::<cargo_anatomy::Config>(&s) {
+                Ok(cfg) => cfg.evaluation,
+                Err(e) => {
+                    eprintln!("failed to parse config: {}", e);
+                    cargo_anatomy::EvaluationThresholds::default()
+                }
+            },
+            Err(e) => {
+                eprintln!("failed to read config: {}", e);
+                cargo_anatomy::EvaluationThresholds::default()
+            }
+        }
+    } else {
+        cargo_anatomy::EvaluationThresholds::default()
+    };
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();
@@ -408,7 +440,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         crates.push((crate_name, files));
     }
 
-    let mut details_map = analyze_workspace_details(&crates);
+    let mut details_map = analyze_workspace_details_with_thresholds(&crates, &eval_thresholds);
     for (name, detail) in details_map.iter_mut() {
         if let Some(k) = kind_map.get(name) {
             detail.kind = *k;
@@ -425,9 +457,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             show_all
         ));
     } else {
-        let metrics_map: HashMap<String, cargo_anatomy::Metrics> = details_map
+        let metrics_map: HashMap<String, MetricsWithEval> = details_map
             .into_iter()
-            .map(|(k, v)| (k, v.metrics))
+            .map(|(k, v)| {
+                let eval = cargo_anatomy::evaluate_metrics_with(&v.metrics, &eval_thresholds);
+                (
+                    k,
+                    MetricsWithEval {
+                        metrics: v.metrics,
+                        evaluation: eval,
+                    },
+                )
+            })
             .collect();
         for (_, package_name) in &name_map {
             info!("processing crate {}", package_name);

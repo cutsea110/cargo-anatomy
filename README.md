@@ -53,6 +53,9 @@ cargo anatomy -a
 # Include external dependencies in metrics (may be slower)
 cargo anatomy -x
 
+# Use a custom evaluation config
+cargo anatomy -c config.toml
+
 # Display help with metric descriptions
 cargo anatomy -?
 
