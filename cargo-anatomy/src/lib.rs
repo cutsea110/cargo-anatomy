@@ -420,6 +420,12 @@ fn parse_dir(dir: &std::path::Path) -> Result<Vec<File>, Box<dyn std::error::Err
     Ok(files)
 }
 
+/// Parse all Rust source files belonging to the given package.
+///
+/// Every library or binary target's source directory is scanned and any `.rs`
+/// files found are parsed into `syn::File` structures. Files located under a
+/// `tests` directory are skipped since Cargo treats integration tests as
+/// separate crates.
 pub fn parse_package(
     package: &cargo_metadata::Package,
 ) -> Result<Vec<File>, Box<dyn std::error::Error>> {
