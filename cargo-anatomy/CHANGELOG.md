@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2025-07-21
+### Added
+- Configurable evaluation thresholds.
+- `init` subcommand to generate a configuration template.
+- Meta information in the JSON output, including the target triple.
+### Changed
+- Reorganized configuration documentation and clarified usage.
+### Fixed
+- Mermaid format now correctly inserts newlines.
+
 ## [0.4.0] - 2025-07-20
 ### Added
 - Mermaid graph output format.
