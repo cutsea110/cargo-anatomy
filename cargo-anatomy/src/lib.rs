@@ -11,6 +11,9 @@ use syn::{visit::Visit, File};
 use walkdir::WalkDir;
 
 /// Wrap an error with file and line information.
+///
+/// This helper is mainly used by the `loc_try!` macro so that any propagated
+/// error retains its originating call site, which simplifies debugging.
 #[track_caller]
 pub fn error_with_location<E>(err: E) -> Box<dyn std::error::Error>
 where
@@ -140,7 +143,9 @@ pub struct MetricsResult {
     pub evaluation: Evaluation,
 }
 
-/// Assign qualitative labels to metrics.
+/// Assign qualitative labels to numerical metrics.
+///
+/// Thresholds loosely follow the metrics described in Robert C. Martin's *Agile Software Development*.
 pub fn evaluate_metrics(m: &Metrics) -> Evaluation {
     let a_label = if m.a >= 0.7 {
         AbstractionEval::Abstract
@@ -422,7 +427,7 @@ fn parse_dir(dir: &std::path::Path) -> Result<Vec<File>, Box<dyn std::error::Err
 
 /// Parse all Rust source files belonging to the given package.
 ///
-/// Every library or binary target's source directory is scanned and any `.rs`
+/// Every library or binary target's source directory is scanned (or `src/` when no targets declare a path) and any `.rs`
 /// files found are parsed into `syn::File` structures. Files located under a
 /// `tests` directory are skipped since Cargo treats integration tests as
 /// separate crates.
@@ -436,7 +441,10 @@ pub fn parse_package(
     }
     Ok(files)
 }
-/// Parse and analyze a single package.
+/// Parse a package's source files and compute metrics.
+///
+/// The provided `workspace_types` should contain class names from all crates
+/// in the workspace so that internal/external references are classified correctly.
 pub fn analyze_package(
     package: &cargo_metadata::Package,
     workspace_types: &HashSet<String>,
@@ -445,6 +453,8 @@ pub fn analyze_package(
     Ok(analyze_files(&files, workspace_types))
 }
 /// Analyze parsed files to produce package metrics.
+///
+/// `workspace_types` should contain all type names defined in the workspace so references can be counted as internal or external.
 pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metrics {
     debug!("collecting definitions from {} files", files.len());
     let (defined, abstract_count) = collect_defined(files);
@@ -503,6 +513,8 @@ pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metri
 }
 
 /// Analyse multiple crates together so cross-crate dependencies can be counted.
+///
+/// Each entry is a crate name paired with its parsed source files.
 pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metrics> {
     analyze_workspace_details(crates)
         .into_iter()
@@ -510,6 +522,8 @@ pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metr
         .collect()
 }
 /// Return metrics and dependency graphs for multiple crates.
+///
+/// This function performs a deeper analysis than `analyze_workspace` by tracking type-level dependencies between crates.
 pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<String, CrateDetail> {
     debug!("analysing {} crates", crates.len());
 
@@ -706,6 +720,8 @@ pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<Stri
 }
 
 /// Determine dependency cycles between crates based on analysis details.
+///
+/// Internally uses Tarjan's strongly connected components algorithm.
 pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<String>> {
     // Build adjacency list of crate -> crates it depends on
     let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
