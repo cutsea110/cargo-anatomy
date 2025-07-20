@@ -73,33 +73,8 @@ cargo anatomy -o dot
 cargo anatomy -o mermaid
 ```
 
-## Configuration
-
-`cargo-anatomy` looks for an `anatomy.conf` file to customize how metric values
-are evaluated. Run `cargo anatomy init` to create a template in the current
-directory. The file is written in TOML and contains the following sections and
-defaults:
-
-```toml
-[evaluation]
-  [evaluation.abstraction]
-  abstract_min = 0.7   # minimum ratio considered abstract
-  concrete_max = 0.3   # maximum ratio considered concrete
-
-  [evaluation.cohesion]
-  high_gt = 1.0        # values greater than this are high cohesion
-
-  [evaluation.instability]
-  unstable_min = 0.7   # minimum ratio considered unstable
-  stable_max = 0.3     # maximum ratio considered stable
-
-  [evaluation.distance]
-  good_max = 0.4       # max normalized distance considered good
-  bad_min = 0.6        # min normalized distance considered bad
-```
-
-Specify a path with `-c <FILE>` to use a different configuration, or omit the
-option to rely on these defaults.
+For custom evaluation thresholds, run `cargo anatomy init` to generate a
+template configuration and pass `-c <FILE>` to load it. See the [Configuration](#configuration) section for more details.
 
 The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output, `-o dot` for Graphviz or `-o mermaid` for Mermaid diagrams. When using `-o dot`, you can write the graph to a file and convert it with Graphviz: `cargo anatomy -o dot > graph.dot && dot -Tpng graph.dot -o graph.png`. Dependency arrows are labeled with the efferent couple count from the source crate when the `-a` flag is used. Graphviz and Mermaid outputs omit dependency edges unless `-a` is supplied, so combining these formats with `-a` is recommended when you want to visualize the graph.
 
@@ -155,6 +130,30 @@ See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main
 ```
 
 Enable `RUST_LOG=info` to see progress logs during analysis.
+
+## Configuration
+
+`cargo-anatomy` looks for an `anatomy.conf` file to customize how metric values are evaluated. Run `cargo anatomy init` to create a template in the current directory. The file is written in TOML and contains the following sections and defaults:
+
+```toml
+[evaluation]
+  [evaluation.abstraction]
+  abstract_min = 0.7   # minimum ratio considered abstract
+  concrete_max = 0.3   # maximum ratio considered concrete
+
+  [evaluation.cohesion]
+  high_gt = 1.0        # values greater than this are high cohesion
+
+  [evaluation.instability]
+  unstable_min = 0.7   # minimum ratio considered unstable
+  stable_max = 0.3     # maximum ratio considered stable
+
+  [evaluation.distance]
+  good_max = 0.4       # max normalized distance considered good
+  bad_min = 0.6        # min normalized distance considered bad
+```
+
+Specify a path with `-c <FILE>` to use a different configuration, or omit the option to rely on these defaults.
 
 ## Docker image
 
