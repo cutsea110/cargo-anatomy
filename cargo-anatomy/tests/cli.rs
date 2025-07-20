@@ -1,5 +1,29 @@
 use assert_cmd::Command;
 
+fn create_workspace(crates: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, src) in crates {
+        std::fs::create_dir_all(dir.path().join(name).join("src")).unwrap();
+        std::fs::write(
+            dir.path().join(format!("{}/Cargo.toml", name)),
+            format!("[package]\nname = \"{}\"\nversion = \"0.1.0\"\n", name),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(format!("{}/src/lib.rs", name)), src).unwrap();
+    }
+    let members = crates
+        .iter()
+        .map(|(n, _)| format!("\"{}\"", n))
+        .collect::<Vec<_>>()
+        .join(", ");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        format!("[workspace]\nmembers = [{}]\n", members),
+    )
+    .unwrap();
+    dir
+}
+
 #[test]
 fn prints_version() {
     let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
@@ -405,3 +429,34 @@ fn mermaid_without_a_has_no_edge_labels() {
     assert!(!s.contains("--|"));
     assert!(!s.contains("-->"));
 }
+
+#[test]
+fn external_crate_excluded_without_x() {
+    let ext = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(ext.path().join("src")).unwrap();
+    std::fs::write(
+        ext.path().join("Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(ext.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    let ws = create_workspace(&[("app", "use dep::Dep; pub struct App { d: Dep }")]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
+            ext.path().display()
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.current_dir(ws.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["crate_name"].as_str().unwrap(), "app");
+}
+
