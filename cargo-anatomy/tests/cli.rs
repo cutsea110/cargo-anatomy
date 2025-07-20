@@ -144,6 +144,30 @@ fn outputs_mermaid() {
 }
 
 #[test]
+fn mermaid_uses_html_newlines() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("pkg")).unwrap();
+    std::fs::create_dir(dir.path().join("pkg/src")).unwrap();
+    std::fs::write(
+        dir.path().join("pkg/Cargo.toml"),
+        "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct Foo;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"pkg\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("<br/>n="));
+}
+
+#[test]
 fn custom_lib_path() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("foo/app")).unwrap();
