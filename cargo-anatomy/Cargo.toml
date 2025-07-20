@@ -1,6 +1,6 @@
 [package]
 name = "cargo-anatomy"
-version = "0.4.0-rc1"
+version = "0.4.0-rc2"
 edition = "2021"
 authors = ["Katsutoshi Itoh"]
 description = "Analyze Rust workspaces and report package metrics"
@@ -16,7 +16,7 @@ categories = [
 ]
 
 [dependencies]
-cargo_metadata = "0.15"
+cargo_metadata = "0.21"
 syn = { version = "2", features = ["full", "visit"] }
 walkdir = "2"
 serde = { version = "1", features = ["derive"] }

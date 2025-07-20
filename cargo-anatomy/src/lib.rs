@@ -389,7 +389,11 @@ pub fn parse_package(
 
     let mut dirs = HashSet::new();
     for target in &package.targets {
-        if target.kind.iter().any(|k| k == "lib" || k == "bin") {
+        if target
+            .kind
+            .iter()
+            .any(|k| matches!(k, cargo_metadata::TargetKind::Lib | cargo_metadata::TargetKind::Bin))
+        {
             let src_path = std::path::Path::new(&target.src_path);
             if let Some(parent) = src_path.parent() {
                 dirs.insert(parent.to_path_buf());
