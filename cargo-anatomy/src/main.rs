@@ -6,6 +6,7 @@ use log::info;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::path::Path;
 
 const METRICS_HELP: &[&str] = &[
     "Metrics:",
@@ -28,6 +29,30 @@ const EVALUATION_HELP: &[&str] = &[
     "  D' - <=0.4 good; >=0.6 useless if A+I-1 >= 0 else painful; otherwise balanced",
 ];
 
+const CONFIG_TEMPLATE: &str = "# Configuration for cargo-anatomy\n\n\
+[evaluation]\n\
+  [evaluation.abstraction]\n\
+  # Minimum ratio considered abstract\n\
+  abstract_min = 0.7\n\
+  # Maximum ratio considered concrete\n\
+  concrete_max = 0.3\n\
+\n\
+  [evaluation.cohesion]\n\
+  # Values greater than this are high cohesion\n\
+  high_gt = 1.0\n\
+\n\
+  [evaluation.instability]\n\
+  # Minimum ratio considered unstable\n\
+  unstable_min = 0.7\n\
+  # Maximum ratio considered stable\n\
+  stable_max = 0.3\n\
+\n\
+  [evaluation.distance]\n\
+  # Maximum normalized distance considered good\n\
+  good_max = 0.4\n\
+  # Minimum normalized distance considered bad\n\
+  bad_min = 0.6\n";
+
 fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
     let brief = format!(
         "cargo-anatomy {}\nUsage: cargo anatomy [options]",
@@ -44,6 +69,17 @@ fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
 
 fn print_help(opts: &Options) {
     let _ = print_help_to(opts, io::stdout());
+}
+
+fn init_config<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>> {
+    let p = path.as_ref();
+    if p.exists() {
+        eprintln!("{} already exists", p.display());
+        return Ok(());
+    }
+    std::fs::write(p, CONFIG_TEMPLATE)?;
+    println!("created {}", p.display());
+    Ok(())
 }
 
 fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
@@ -251,7 +287,6 @@ trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
 
-
 #[derive(Clone, Serialize)]
 struct MetricsWithEval {
     metrics: cargo_anatomy::Metrics,
@@ -330,6 +365,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     let args: Vec<String> = std::env::args().collect();
 
+    if args.len() > 1 && args[1] == "init" {
+        let path = Path::new("anatomy.conf");
+        return init_config(path);
+    }
+
     let mut opts = Options::new();
     opts.optflag("a", "all", "Show classes and dependency graphs");
     opts.optflag(
@@ -344,12 +384,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Output format: json, yaml, dot or mermaid",
         "FORMAT",
     );
-    opts.optopt(
-        "c",
-        "config",
-        "Path to evaluation config file",
-        "FILE",
-    );
+    opts.optopt("c", "config", "Path to evaluation config file", "FILE");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
 
@@ -378,26 +413,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
         .unwrap_or_else(|| "json".to_string());
-    let eval_thresholds = if let Some(path) = matches
-        .opt_str("c")
-        .or_else(|| matches.opt_str("config"))
-    {
-        match std::fs::read_to_string(&path) {
-            Ok(s) => match toml::from_str::<cargo_anatomy::Config>(&s) {
-                Ok(cfg) => cfg.evaluation,
+    let eval_thresholds =
+        if let Some(path) = matches.opt_str("c").or_else(|| matches.opt_str("config")) {
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match toml::from_str::<cargo_anatomy::Config>(&s) {
+                    Ok(cfg) => cfg.evaluation,
+                    Err(e) => {
+                        eprintln!("failed to parse config: {}", e);
+                        cargo_anatomy::EvaluationThresholds::default()
+                    }
+                },
                 Err(e) => {
-                    eprintln!("failed to parse config: {}", e);
+                    eprintln!("failed to read config: {}", e);
                     cargo_anatomy::EvaluationThresholds::default()
                 }
-            },
-            Err(e) => {
-                eprintln!("failed to read config: {}", e);
-                cargo_anatomy::EvaluationThresholds::default()
             }
-        }
-    } else {
-        cargo_anatomy::EvaluationThresholds::default()
-    };
+        } else {
+            cargo_anatomy::EvaluationThresholds::default()
+        };
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();

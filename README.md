@@ -56,6 +56,9 @@ cargo anatomy -x
 # Use a custom evaluation config
 cargo anatomy -c config.toml
 
+# Generate a template config file
+cargo anatomy init
+
 # Display help with metric descriptions
 cargo anatomy -?
 
