@@ -527,11 +527,12 @@ fn package_source_dirs(package: &cargo_metadata::Package) -> HashSet<std::path::
     let manifest_dir = package.manifest_path.parent().unwrap();
     let mut dirs = HashSet::new();
     for target in &package.targets {
-        if target
-            .kind
-            .iter()
-            .any(|k| matches!(k, cargo_metadata::TargetKind::Lib | cargo_metadata::TargetKind::Bin))
-        {
+        if target.kind.iter().any(|k| {
+            matches!(
+                k,
+                cargo_metadata::TargetKind::Lib | cargo_metadata::TargetKind::Bin
+            )
+        }) {
             if let Some(parent) = std::path::Path::new(&target.src_path).parent() {
                 dirs.insert(parent.to_path_buf());
             }
@@ -1287,7 +1288,9 @@ impl<'a> DetailVisitor<'a> {
             }
             if let Some(seg) = p.path.segments.last() {
                 let name = seg.ident.to_string();
-                if self.defined.contains_key(&name) || self.all_defined.values().any(|d| d.contains_key(&name)) {
+                if self.defined.contains_key(&name)
+                    || self.all_defined.values().any(|d| d.contains_key(&name))
+                {
                     let root = self.path_root(&p.path);
                     return Some((name, root));
                 }
@@ -1298,7 +1301,10 @@ impl<'a> DetailVisitor<'a> {
 
     fn infer_from_method_call(&self, mc: &syn::ExprMethodCall) -> Option<(String, Option<String>)> {
         if let Some((receiver_ty, root)) = self.infer_expr_type(&mc.receiver) {
-            if let Some(ret) = self.methods.get(&(receiver_ty.clone(), mc.method.to_string())) {
+            if let Some(ret) = self
+                .methods
+                .get(&(receiver_ty.clone(), mc.method.to_string()))
+            {
                 return Some((ret.clone(), root));
             }
             if let Some(bounds) = self.trait_bounds.get(&receiver_ty) {
@@ -1331,11 +1337,16 @@ impl<'a> DetailVisitor<'a> {
 
     fn infer_from_path(&self, p: &syn::ExprPath) -> Option<(String, Option<String>)> {
         if p.path.segments.len() == 1 && p.path.segments[0].ident == "self" {
-            return self.current.as_ref().map(|c| (c.clone(), Some(self.crate_name.to_string())));
+            return self
+                .current
+                .as_ref()
+                .map(|c| (c.clone(), Some(self.crate_name.to_string())));
         }
         if let Some(seg) = p.path.segments.last() {
             let name = seg.ident.to_string();
-            if self.defined.contains_key(&name) || self.all_defined.values().any(|d| d.contains_key(&name)) {
+            if self.defined.contains_key(&name)
+                || self.all_defined.values().any(|d| d.contains_key(&name))
+            {
                 let root = self.path_root(&p.path);
                 return Some((name, root));
             }
@@ -1899,12 +1910,12 @@ mod tests {
             .and_then(|m| m.get("crate_a"))
             .map(|v| v.contains(&"my_macro".to_string()))
             .unwrap_or(false));
-    assert!(a_info
-        .external_depended_by
-        .get("my_macro")
-        .and_then(|m| m.get("crate_b"))
-        .map(|v| v.contains(&"Use".to_string()))
-        .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("my_macro")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -2147,7 +2158,11 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct Foo;\n").unwrap();
-        std::fs::write(dir.path().join("pkg/tests/integration.rs"), "pub struct Bar;\n").unwrap();
+        std::fs::write(
+            dir.path().join("pkg/tests/integration.rs"),
+            "pub struct Bar;\n",
+        )
+        .unwrap();
         let metadata = MetadataCommand::new()
             .no_deps()
             .current_dir(dir.path().join("pkg"))
@@ -2156,6 +2171,227 @@ mod tests {
         let package = metadata.packages.first().unwrap();
         let files = parse_package(package).unwrap();
         assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn lib_and_main_dependency() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("dep/src")).unwrap();
+        std::fs::write(
+            dir.path().join("dep/Cargo.toml"),
+            "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("dep/src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+        std::fs::create_dir_all(dir.path().join("app/src")).unwrap();
+        std::fs::write(
+            dir.path().join("app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = { path = \"../dep\" }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("app/src/lib.rs"), "pub struct App;\n").unwrap();
+        std::fs::write(
+            dir.path().join("app/src/main.rs"),
+            "use dep::Dep; fn main() { let _ = Dep; }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\", \"dep\"]\n",
+        )
+        .unwrap();
+
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path())
+            .exec()
+            .unwrap();
+        let mut crates = Vec::new();
+        for pkg in &metadata.packages {
+            crates.push((pkg.name.as_str().to_string(), parse_package(pkg).unwrap()));
+        }
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(info["app"].metrics.ce, 1);
+        assert_eq!(info["dep"].metrics.ca, 1);
+    }
+
+    #[test]
+    fn path_dep_import_dependency() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/c/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
+
+        std::fs::write(
+            dir.path().join("a/Cargo.toml"),
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("a/src/lib.rs"), "pub mod foo;\n").unwrap();
+        std::fs::write(
+            dir.path().join("a/src/foo.rs"),
+            "#[derive(Debug)]\npub enum Foo { A }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("b/Cargo.toml"),
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../a\" }\nc = { path = \"./c\" }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("b/src/lib.rs"), "pub use c;\n").unwrap();
+
+        std::fs::write(
+            dir.path().join("b/c/Cargo.toml"),
+            "[package]\nname = \"c\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../../a\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("b/c/src/lib.rs"),
+            "use a::foo;\npub const X: foo::Foo = foo::Foo::A;\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path())
+            .exec()
+            .unwrap();
+        let mut crates = Vec::new();
+        for pkg in &metadata.packages {
+            crates.push((pkg.name.as_str().to_string(), parse_package(pkg).unwrap()));
+        }
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(info["c"].metrics.ce, 1);
+        assert_eq!(info["a"].metrics.ca, 1);
+    }
+
+    #[test]
+    fn external_crate_alias() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(external.path().join("src")).unwrap();
+        std::fs::write(
+            external.path().join("Cargo.toml"),
+            "[package]\nname = \"foo_bar\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(external.path().join("src/lib.rs"), "pub struct FooBar;\n").unwrap();
+
+        std::fs::create_dir(dir.path().join("app")).unwrap();
+        std::fs::create_dir(dir.path().join("app/src")).unwrap();
+        std::fs::write(
+            dir.path().join("app/Cargo.toml"),
+            format!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nfoo_bar = {{ path = \"{}\" }}\n",
+                external.path().display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/src/lib.rs"),
+            "use foo_bar as foo; pub struct App { d: foo::FooBar }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\"]\n",
+        )
+        .unwrap();
+
+        let metadata_app = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path().join("app"))
+            .exec()
+            .unwrap();
+        let app_pkg = metadata_app.packages.first().unwrap();
+        let app_files = parse_package(app_pkg).unwrap();
+
+        let metadata_dep = MetadataCommand::new()
+            .no_deps()
+            .current_dir(external.path())
+            .exec()
+            .unwrap();
+        let dep_pkg = metadata_dep.packages.first().unwrap();
+        let dep_files = parse_package(dep_pkg).unwrap();
+
+        let crates = vec![
+            ("app".to_string(), app_files),
+            ("foo_bar".to_string(), dep_files),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let app = info.get("app").unwrap();
+        let dep = info.get("foo_bar").unwrap();
+        assert_eq!(app.metrics.ce, 1);
+        assert_eq!(dep.metrics.ca, 1);
+        assert_eq!(dep.metrics.ce, 0);
+        assert!(app
+            .external_depends_on
+            .get("App")
+            .and_then(|m| m.get("foo_bar"))
+            .map(|v| v.contains(&"FooBar".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn bin_target_dependency() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("dep/src")).unwrap();
+        std::fs::write(
+            dir.path().join("dep/Cargo.toml"),
+            "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("dep/src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+        std::fs::create_dir_all(dir.path().join("app/src/bin")).unwrap();
+        std::fs::write(
+            dir.path().join("app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = { path = \"../dep\" }\n\n[[bin]]\nname = \"cli\"\npath = \"src/bin/cli.rs\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("app/src/lib.rs"), "pub struct App;\n").unwrap();
+        std::fs::write(
+            dir.path().join("app/src/bin/cli.rs"),
+            "use dep::Dep; fn main() { let _ = Dep; }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\", \"dep\"]\n",
+        )
+        .unwrap();
+
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path())
+            .exec()
+            .unwrap();
+        let mut crates = Vec::new();
+        for pkg in &metadata.packages {
+            crates.push((pkg.name.as_str().to_string(), parse_package(pkg).unwrap()));
+        }
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(info["app"].metrics.ce, 1);
+        assert_eq!(info["dep"].metrics.ca, 1);
     }
 
     #[test]
