@@ -1109,6 +1109,11 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                     handle(&p.tree, Some(root), ws, map);
                 }
                 syn::UseTree::Name(n) => {
+                    // When `first` is `None`, the use statement is importing a
+                    // crate without an alias (e.g. `use foo;`). In this case
+                    // `path_root` can resolve the crate directly, so we only
+                    // track names when they appear as part of a path with a
+                    // prefix.
                     if let Some(r) = &first {
                         if ws.contains(r) {
                             map.insert(n.ident.to_string(), Some(r.clone()));
