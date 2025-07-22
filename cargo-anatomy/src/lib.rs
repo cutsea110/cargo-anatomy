@@ -1162,7 +1162,6 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                         }
                     }
                 }
-                _ => {}
             }
         }
 
