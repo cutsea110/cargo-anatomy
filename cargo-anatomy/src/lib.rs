@@ -1124,6 +1124,13 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                         } else {
                             map.insert(rn.rename.to_string(), None);
                         }
+                    } else {
+                        let root = rn.ident.to_string();
+                        if ws.contains(&root) {
+                            map.insert(rn.rename.to_string(), Some(root));
+                        } else {
+                            map.insert(rn.rename.to_string(), None);
+                        }
                     }
                 }
                 syn::UseTree::Group(g) => {
