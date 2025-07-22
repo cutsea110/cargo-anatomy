@@ -1249,68 +1249,72 @@ impl<'a> DetailVisitor<'a> {
         }
     }
 
+    const ROOT_ITEM: &'static str = "__crate_root";
+
     fn record_use(&mut self, name: String, root: Option<String>) {
-        if let Some(current) = &self.current {
-            if name == *current {
-                return;
+        let current = self
+            .current
+            .clone()
+            .unwrap_or_else(|| Self::ROOT_ITEM.to_string());
+
+        if name == current {
+            return;
+        }
+
+        match root {
+            Some(ref r) if r == self.crate_name => {
+                if self.defined.contains_key(&name) {
+                    self.internal
+                        .entry(current.clone())
+                        .or_default()
+                        .insert(name);
+                }
             }
-            match root {
-                Some(ref r) if r == self.crate_name => {
-                    if self.defined.contains_key(&name) {
-                        self.internal
-                            .entry(current.clone())
-                            .or_default()
-                            .insert(name);
-                    }
-                }
-                Some(ref r) => {
-                    if self.workspace_crates.contains(r) {
-                        let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
-                            orig
-                        } else {
-                            &name
-                        };
-                        if self
-                            .all_defined
-                            .get(r)
-                            .map_or(false, |d| d.contains_key(lookup))
-                        {
-                            self.external
-                                .entry(current.clone())
-                                .or_default()
-                                .entry(r.clone())
-                                .or_default()
-                                .insert(lookup.to_string());
-                        }
-                    }
-                }
-                None => {
-                    if self.defined.contains_key(&name) {
-                        self.internal
-                            .entry(current.clone())
-                            .or_default()
-                            .insert(name);
-                    } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned()
+            Some(ref r) => {
+                if self.workspace_crates.contains(r) {
+                    let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
+                        orig
+                    } else {
+                        &name
+                    };
+                    if self
+                        .all_defined
+                        .get(r)
+                        .map_or(false, |d| d.contains_key(lookup))
                     {
-                        let lookup = orig.unwrap_or(name.clone());
-                        if self
-                            .all_defined
-                            .get(&import_root)
-                            .map_or(false, |d| d.contains_key(&lookup))
-                        {
-                            self.external
-                                .entry(current.clone())
-                                .or_default()
-                                .entry(import_root.clone())
-                                .or_default()
-                                .insert(lookup);
-                        }
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(r.clone())
+                            .or_default()
+                            .insert(lookup.to_string());
+                    }
+                }
+            }
+            None => {
+                if self.defined.contains_key(&name) {
+                    self.internal
+                        .entry(current.clone())
+                        .or_default()
+                        .insert(name);
+                } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
+                    let lookup = orig.unwrap_or(name.clone());
+                    if self
+                        .all_defined
+                        .get(&import_root)
+                        .map_or(false, |d| d.contains_key(&lookup))
+                    {
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(import_root.clone())
+                            .or_default()
+                            .insert(lookup);
                     }
                 }
             }
         }
     }
-
     fn infer_from_call(&self, call: &syn::ExprCall) -> Option<(String, Option<String>)> {
         if let syn::Expr::Path(p) = &*call.func {
             if p.path.segments.len() >= 2 {
@@ -2031,6 +2035,36 @@ mod tests {
             .and_then(|m| m.get("crate_b"))
             .map(|v| v.contains(&"Use".to_string()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn macro_glob_top_level() {
+        let src_a = r#"
+            #[macro_export]
+            macro_rules! my_macro {
+                () => {};
+            }
+        "#;
+        let src_b = r#"
+            use crate_a::*;
+            my_macro!();
+            fn main() {}
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
     }
 
     #[test]
