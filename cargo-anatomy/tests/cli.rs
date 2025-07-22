@@ -25,6 +25,94 @@ fn create_workspace(crates: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn lib_and_main_dependency() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("dep/src")).unwrap();
+    std::fs::write(
+        dir.path().join("dep/Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("dep/src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    std::fs::create_dir_all(dir.path().join("app/src")).unwrap();
+    std::fs::write(
+        dir.path().join("app/Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = { path = \"../dep\" }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("app/src/lib.rs"), "pub struct App;\n").unwrap();
+    std::fs::write(
+        dir.path().join("app/src/main.rs"),
+        "use dep::Dep; fn main() { let _x = Dep; }\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\", \"dep\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("-a").current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    assert_eq!(map["app"]["metrics"]["ce"].as_u64().unwrap(), 1);
+    assert_eq!(map["dep"]["metrics"]["ca"].as_u64().unwrap(), 1);
+}
+
+#[test]
+fn bin_target_dependency() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("dep/src")).unwrap();
+    std::fs::write(
+        dir.path().join("dep/Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("dep/src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    std::fs::create_dir_all(dir.path().join("app/src/bin")).unwrap();
+    std::fs::write(
+        dir.path().join("app/Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = { path = \"../dep\" }\n\n[[bin]]\nname = \"cli\"\npath = \"src/bin/cli.rs\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("app/src/lib.rs"), "pub struct App;\n").unwrap();
+    std::fs::write(
+        dir.path().join("app/src/bin/cli.rs"),
+        "use dep::Dep; fn main() { let _x = Dep; }\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\", \"dep\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("-a").current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    assert_eq!(map["app"]["metrics"]["ce"].as_u64().unwrap(), 1);
+    assert_eq!(map["dep"]["metrics"]["ca"].as_u64().unwrap(), 1);
+}
+
+#[test]
 fn prints_version() {
     let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
     cmd.arg("-V");
