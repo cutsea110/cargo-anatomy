@@ -1118,19 +1118,14 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                     }
                 }
                 syn::UseTree::Rename(rn) => {
-                    if let Some(r) = &first {
-                        if ws.contains(r) {
-                            map.insert(rn.rename.to_string(), Some(r.clone()));
-                        } else {
-                            map.insert(rn.rename.to_string(), None);
-                        }
+                    let root = first
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_else(|| rn.ident.to_string());
+                    if ws.contains(&root) {
+                        map.insert(rn.rename.to_string(), Some(root));
                     } else {
-                        let root = rn.ident.to_string();
-                        if ws.contains(&root) {
-                            map.insert(rn.rename.to_string(), Some(root));
-                        } else {
-                            map.insert(rn.rename.to_string(), None);
-                        }
+                        map.insert(rn.rename.to_string(), None);
                     }
                 }
                 syn::UseTree::Group(g) => {
