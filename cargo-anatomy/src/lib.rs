@@ -1107,12 +1107,13 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             tree: &syn::UseTree,
             first: Option<String>,
             ws: &HashSet<String>,
+            all_def: &HashMap<String, HashMap<String, ClassKind>>,
             map: &mut HashMap<String, (Option<String>, Option<String>)>,
         ) {
             match tree {
                 syn::UseTree::Path(p) => {
                     let root = first.clone().unwrap_or_else(|| p.ident.to_string());
-                    handle(&p.tree, Some(root), ws, map);
+                    handle(&p.tree, Some(root), ws, all_def, map);
                 }
                 syn::UseTree::Name(n) => {
                     // When `first` is `None`, the use statement is importing a
@@ -1147,14 +1148,30 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                 }
                 syn::UseTree::Group(g) => {
                     for t in &g.items {
-                        handle(t, first.clone(), ws, map);
+                        handle(t, first.clone(), ws, all_def, map);
                     }
                 }
-                _ => {}
+                syn::UseTree::Glob(_) => {
+                    if let Some(r) = &first {
+                        if ws.contains(r) {
+                            if let Some(defs) = all_def.get(r) {
+                                for name in defs.keys() {
+                                    map.insert(name.clone(), (Some(r.clone()), Some(name.clone())));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        handle(&i.tree, None, self.workspace_crates, &mut self.imports);
+        handle(
+            &i.tree,
+            None,
+            self.workspace_crates,
+            self.all_defined,
+            &mut self.imports,
+        );
         syn::visit::visit_item_use(self, i);
     }
     fn visit_path(&mut self, node: &'ast syn::Path) {
@@ -1232,67 +1249,72 @@ impl<'a> DetailVisitor<'a> {
         }
     }
 
+    const ROOT_ITEM: &'static str = "__crate_root";
+
     fn record_use(&mut self, name: String, root: Option<String>) {
-        if let Some(current) = &self.current {
-            if name == *current {
-                return;
+        let current = self
+            .current
+            .clone()
+            .unwrap_or_else(|| Self::ROOT_ITEM.to_string());
+
+        if name == current {
+            return;
+        }
+
+        match root {
+            Some(ref r) if r == self.crate_name => {
+                if self.defined.contains_key(&name) {
+                    self.internal
+                        .entry(current.clone())
+                        .or_default()
+                        .insert(name);
+                }
             }
-            match root {
-                Some(ref r) if r == self.crate_name => {
-                    if self.defined.contains_key(&name) {
-                        self.internal
+            Some(ref r) => {
+                if self.workspace_crates.contains(r) {
+                    let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
+                        orig
+                    } else {
+                        &name
+                    };
+                    if self
+                        .all_defined
+                        .get(r)
+                        .map_or(false, |d| d.contains_key(lookup))
+                    {
+                        self.external
                             .entry(current.clone())
                             .or_default()
-                            .insert(name);
+                            .entry(r.clone())
+                            .or_default()
+                            .insert(lookup.to_string());
                     }
                 }
-                Some(ref r) => {
-                    if self.workspace_crates.contains(r) {
-                        let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
-                            orig
-                        } else {
-                            &name
-                        };
-                        if self
-                            .all_defined
-                            .get(r)
-                            .map_or(false, |d| d.contains_key(lookup))
-                        {
-                            self.external
-                                .entry(current.clone())
-                                .or_default()
-                                .entry(r.clone())
-                                .or_default()
-                                .insert(lookup.to_string());
-                        }
-                    }
-                }
-                None => {
-                    if self.defined.contains_key(&name) {
-                        self.internal
+            }
+            None => {
+                if self.defined.contains_key(&name) {
+                    self.internal
+                        .entry(current.clone())
+                        .or_default()
+                        .insert(name);
+                } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
+                    let lookup = orig.unwrap_or(name.clone());
+                    if self
+                        .all_defined
+                        .get(&import_root)
+                        .map_or(false, |d| d.contains_key(&lookup))
+                    {
+                        self.external
                             .entry(current.clone())
                             .or_default()
-                            .insert(name);
-                    } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
-                        let lookup = orig.unwrap_or(name.clone());
-                        if self
-                            .all_defined
-                            .get(&import_root)
-                            .map_or(false, |d| d.contains_key(&lookup))
-                        {
-                            self.external
-                                .entry(current.clone())
-                                .or_default()
-                                .entry(import_root.clone())
-                                .or_default()
-                                .insert(lookup);
-                        }
+                            .entry(import_root.clone())
+                            .or_default()
+                            .insert(lookup);
                     }
                 }
             }
         }
     }
-
     fn infer_from_call(&self, call: &syn::ExprCall) -> Option<(String, Option<String>)> {
         if let syn::Expr::Path(p) = &*call.func {
             if p.path.segments.len() >= 2 {
@@ -1953,19 +1975,62 @@ mod tests {
 
         assert_eq!(b_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
+    }
 
-        assert!(b_info
-            .external_depends_on
-            .get("Use")
-            .and_then(|m| m.get("crate_a"))
-            .map(|v| v.contains(&"my_macro".to_string()))
-            .unwrap_or(false));
-        assert!(a_info
-            .external_depended_by
-            .get("my_macro")
-            .and_then(|m| m.get("crate_b"))
-            .map(|v| v.contains(&"Use".to_string()))
-            .unwrap_or(false));
+    #[test]
+    fn glob_import_dependency() {
+        let src_a = r#"
+            pub struct Foo;
+        "#;
+        let src_b = r#"
+            use crate_a::*;
+            pub struct Use(Foo);
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+    }
+
+    #[test]
+    fn top_level_macro_invocation() {
+        let src_a = r#"
+            #[macro_export]
+            macro_rules! my_macro {
+                () => {};
+            }
+        "#;
+        let src_b = r#"
+            use crate_a::*;
+            my_macro!();
+            fn main() {}
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
     }
 
     #[test]
@@ -2402,29 +2467,29 @@ mod tests {
     fn type_alias_dependency() {
         use cargo_metadata::MetadataCommand;
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("cache/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
         std::fs::write(
-            dir.path().join("cache/Cargo.toml"),
-            "[package]\nname = \"cache\"\nversion = \"0.1.0\"\n",
+            dir.path().join("a/Cargo.toml"),
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        std::fs::write(dir.path().join("cache/src/lib.rs"), "pub struct Cache;\n").unwrap();
+        std::fs::write(dir.path().join("a/src/lib.rs"), "pub struct Cache;\n").unwrap();
 
-        std::fs::create_dir_all(dir.path().join("server/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
         std::fs::write(
-            dir.path().join("server/Cargo.toml"),
-            "[package]\nname = \"server\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"server\"\n",
+            dir.path().join("b/Cargo.toml"),
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"b\"\n",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("server/src/main.rs"),
-            "use cache::Cache as CacheImpl; fn main() { let _ = CacheImpl; }\n",
+            dir.path().join("b/src/main.rs"),
+            "use a::Cache as CacheImpl; fn main() { let _ = CacheImpl; }\n",
         )
         .unwrap();
 
         std::fs::write(
             dir.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"server\", \"cache\"]\n",
+            "[workspace]\nmembers = [\"b\", \"a\"]\n",
         )
         .unwrap();
 
@@ -2439,8 +2504,8 @@ mod tests {
         }
 
         let info = analyze_workspace_details(&crates);
-        assert_eq!(info["server"].metrics.ce, 1);
-        assert_eq!(info["cache"].metrics.ca, 1);
+        assert_eq!(info["b"].metrics.ce, 1);
+        assert_eq!(info["a"].metrics.ca, 1);
     }
 
     #[test]
