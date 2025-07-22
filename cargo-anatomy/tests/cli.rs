@@ -519,4 +519,3 @@ fn init_creates_config() {
     assert!(contents.contains("[evaluation]"));
     assert!(contents.contains("abstract_min"));
 }
-
