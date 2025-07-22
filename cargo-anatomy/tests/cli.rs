@@ -519,3 +519,60 @@ fn init_creates_config() {
     assert!(contents.contains("[evaluation]"));
     assert!(contents.contains("abstract_min"));
 }
+
+#[test]
+fn path_dep_import_dependency() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("b/c/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
+
+    std::fs::write(
+        dir.path().join("a/Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a/src/lib.rs"), "pub mod foo;\n").unwrap();
+    std::fs::write(
+        dir.path().join("a/src/foo.rs"),
+        "#[derive(Debug)]\npub enum Foo { A }\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("b/Cargo.toml"),
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../a\" }\nc = { path = \"./c\" }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("b/src/lib.rs"), "pub use c;\n").unwrap();
+
+    std::fs::write(
+        dir.path().join("b/c/Cargo.toml"),
+        "[package]\nname = \"c\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../../a\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("b/c/src/lib.rs"),
+        "use a::foo;\npub const X: foo::Foo = foo::Foo::A;\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("-a").current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    assert_eq!(map["c"]["metrics"]["ce"].as_u64().unwrap(), 1);
+    assert_eq!(map["a"]["metrics"]["ca"].as_u64().unwrap(), 1);
+}
