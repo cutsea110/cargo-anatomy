@@ -1818,6 +1818,39 @@ mod tests {
     }
 
     #[test]
+    fn async_function_dependency() {
+        let src_a = "pub struct Helper;";
+        let src_b = "use crate_a::Helper; async fn run() { let _ = Helper; }";
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(b_info
+            .external_depends_on
+            .get("run")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Helper".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("Helper")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"run".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn module_metrics() {
         let root = r#"
             mod foo;
