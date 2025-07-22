@@ -1201,6 +1201,8 @@ impl<'a> DetailVisitor<'a> {
                 _ => {
                     if self.workspace_crates.contains(&ident) {
                         Some(ident)
+                    } else if let Some(Some(root)) = self.imports.get(&ident) {
+                        Some(root.clone())
                     } else {
                         None
                     }
@@ -1920,6 +1922,34 @@ mod tests {
         let b_info = info.get("crate_b").unwrap();
 
         assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+    }
+
+    #[test]
+    fn import_const_dependency() {
+        let src_a = r#"
+            pub mod foo {
+                pub enum Foo { A }
+            }
+        "#;
+        let src_c = r#"
+            use crate_a::foo;
+            pub const X: foo::Foo = foo::Foo::A;
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_c: syn::File = syn::parse_str(src_c).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_c".to_string(), vec![file_c.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let c_info = info.get("crate_c").unwrap();
+
+        assert_eq!(c_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
     }
 
