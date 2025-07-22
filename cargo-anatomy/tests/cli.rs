@@ -584,24 +584,24 @@ fn external_crate_alias() {
     std::fs::create_dir_all(external.path().join("src")).unwrap();
     std::fs::write(
         external.path().join("Cargo.toml"),
-        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"foo_bar\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
-    std::fs::write(external.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+    std::fs::write(external.path().join("src/lib.rs"), "pub struct FooBar;\n").unwrap();
 
     std::fs::create_dir(dir.path().join("app")).unwrap();
     std::fs::create_dir(dir.path().join("app/src")).unwrap();
     std::fs::write(
         dir.path().join("app/Cargo.toml"),
         format!(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nfoo_bar = {{ path = \"{}\" }}\n",
             external.path().display()
         ),
     )
     .unwrap();
     std::fs::write(
         dir.path().join("app/src/lib.rs"),
-        "use dep as wpa; pub struct App { d: wpa::Dep }\n",
+        "use foo_bar as foo; pub struct App { d: foo::FooBar }\n",
     )
     .unwrap();
 
@@ -624,16 +624,16 @@ fn external_crate_alias() {
         map.insert(pkg, item);
     }
     let app = map.get("app").unwrap();
-    let dep = map.get("dep").unwrap();
+    let dep = map.get("foo_bar").unwrap();
     assert_eq!(app["metrics"]["ce"].as_u64().unwrap(), 1);
     assert_eq!(dep["metrics"]["ca"].as_u64().unwrap(), 1);
     assert_eq!(dep["metrics"]["ce"].as_u64().unwrap(), 0);
     assert_eq!(
-        app["details"]["external_depends_on"]["App"]["dep"]
+        app["details"]["external_depends_on"]["App"]["foo_bar"]
             .as_array()
             .unwrap()[0]
             .as_str()
             .unwrap(),
-        "Dep"
+        "FooBar"
     );
 }
