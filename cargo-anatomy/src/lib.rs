@@ -1046,6 +1046,24 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         syn::visit::visit_item_type(self, i);
         self.current = None;
     }
+    fn visit_item_const(&mut self, i: &'ast syn::ItemConst) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
+        let name = i.ident.to_string();
+        self.current = Some(name);
+        syn::visit::visit_item_const(self, i);
+        self.current = None;
+    }
+    fn visit_item_static(&mut self, i: &'ast syn::ItemStatic) {
+        if has_test_attr(&i.attrs) {
+            return;
+        }
+        let name = i.ident.to_string();
+        self.current = Some(name);
+        syn::visit::visit_item_static(self, i);
+        self.current = None;
+    }
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
         if has_test_attr(&i.attrs) {
             return;
@@ -1872,12 +1890,37 @@ mod tests {
             .and_then(|m| m.get("crate_a"))
             .map(|v| v.contains(&"my_macro".to_string()))
             .unwrap_or(false));
-        assert!(a_info
-            .external_depended_by
-            .get("my_macro")
-            .and_then(|m| m.get("crate_b"))
-            .map(|v| v.contains(&"Use".to_string()))
-            .unwrap_or(false));
+    assert!(a_info
+        .external_depended_by
+        .get("my_macro")
+        .and_then(|m| m.get("crate_b"))
+        .map(|v| v.contains(&"Use".to_string()))
+        .unwrap_or(false));
+    }
+
+    #[test]
+    fn const_dependency() {
+        let src_a = r#"
+            pub enum Buz { X }
+        "#;
+        let src_b = r#"
+            pub const FOO: &crate_a::Buz = &crate_a::Buz::X;
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
     }
 
     #[test]
