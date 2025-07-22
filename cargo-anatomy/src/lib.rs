@@ -997,7 +997,12 @@ struct DetailVisitor<'a> {
     crate_name: &'a str,
     workspace_crates: &'a HashSet<String>,
     all_defined: &'a HashMap<String, HashMap<String, ClassKind>>,
-    imports: HashMap<String, Option<String>>,
+    /// Map of imported identifiers to their originating crate and original name.
+    ///
+    /// The key is the local identifier introduced by a `use` statement. The
+    /// value is a tuple of `(root crate, original identifier)` where either
+    /// element may be `None` if it cannot be resolved.
+    imports: HashMap<String, (Option<String>, Option<String>)>,
     internal: HashMap<String, HashSet<String>>, // from -> to
     external: HashMap<String, HashMap<String, HashSet<String>>>, // from -> crate -> types
     methods: &'a HashMap<(String, String), String>,
@@ -1102,7 +1107,7 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             tree: &syn::UseTree,
             first: Option<String>,
             ws: &HashSet<String>,
-            map: &mut HashMap<String, Option<String>>,
+            map: &mut HashMap<String, (Option<String>, Option<String>)>,
         ) {
             match tree {
                 syn::UseTree::Path(p) => {
@@ -1117,9 +1122,12 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                     // prefix.
                     if let Some(r) = &first {
                         if ws.contains(r) {
-                            map.insert(n.ident.to_string(), Some(r.clone()));
+                            map.insert(
+                                n.ident.to_string(),
+                                (Some(r.clone()), Some(n.ident.to_string())),
+                            );
                         } else {
-                            map.insert(n.ident.to_string(), None);
+                            map.insert(n.ident.to_string(), (None, None));
                         }
                     }
                 }
@@ -1129,9 +1137,12 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                         .cloned()
                         .unwrap_or_else(|| rn.ident.to_string());
                     if ws.contains(&root) {
-                        map.insert(rn.rename.to_string(), Some(root));
+                        map.insert(
+                            rn.rename.to_string(),
+                            (Some(root), Some(rn.ident.to_string())),
+                        );
                     } else {
-                        map.insert(rn.rename.to_string(), None);
+                        map.insert(rn.rename.to_string(), (None, None));
                     }
                 }
                 syn::UseTree::Group(g) => {
@@ -1209,7 +1220,7 @@ impl<'a> DetailVisitor<'a> {
                 _ => {
                     if self.workspace_crates.contains(&ident) {
                         Some(ident)
-                    } else if let Some(Some(root)) = self.imports.get(&ident) {
+                    } else if let Some((Some(root), _)) = self.imports.get(&ident) {
                         Some(root.clone())
                     } else {
                         None
@@ -1237,17 +1248,22 @@ impl<'a> DetailVisitor<'a> {
                 }
                 Some(ref r) => {
                     if self.workspace_crates.contains(r) {
+                        let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
+                            orig
+                        } else {
+                            &name
+                        };
                         if self
                             .all_defined
                             .get(r)
-                            .map_or(false, |d| d.contains_key(&name))
+                            .map_or(false, |d| d.contains_key(lookup))
                         {
                             self.external
                                 .entry(current.clone())
                                 .or_default()
                                 .entry(r.clone())
                                 .or_default()
-                                .insert(name);
+                                .insert(lookup.to_string());
                         }
                     }
                 }
@@ -1257,18 +1273,19 @@ impl<'a> DetailVisitor<'a> {
                             .entry(current.clone())
                             .or_default()
                             .insert(name);
-                    } else if let Some(import_root) = self.imports.get(&name).cloned().flatten() {
+                    } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
+                        let lookup = orig.unwrap_or(name.clone());
                         if self
                             .all_defined
                             .get(&import_root)
-                            .map_or(false, |d| d.contains_key(&name))
+                            .map_or(false, |d| d.contains_key(&lookup))
                         {
                             self.external
                                 .entry(current.clone())
                                 .or_default()
                                 .entry(import_root.clone())
                                 .or_default()
-                                .insert(name);
+                                .insert(lookup);
                         }
                     }
                 }
@@ -2379,6 +2396,51 @@ mod tests {
             .and_then(|m| m.get("foo_bar"))
             .map(|v| v.contains(&"FooBar".to_string()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn type_alias_dependency() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("cache/src")).unwrap();
+        std::fs::write(
+            dir.path().join("cache/Cargo.toml"),
+            "[package]\nname = \"cache\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("cache/src/lib.rs"), "pub struct Cache;\n").unwrap();
+
+        std::fs::create_dir_all(dir.path().join("server/src")).unwrap();
+        std::fs::write(
+            dir.path().join("server/Cargo.toml"),
+            "[package]\nname = \"server\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"server\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("server/src/main.rs"),
+            "use cache::Cache as CacheImpl; fn main() { let _ = CacheImpl; }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"server\", \"cache\"]\n",
+        )
+        .unwrap();
+
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path())
+            .exec()
+            .unwrap();
+        let mut crates = Vec::new();
+        for pkg in &metadata.packages {
+            crates.push((pkg.name.as_str().to_string(), parse_package(pkg).unwrap()));
+        }
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(info["server"].metrics.ce, 1);
+        assert_eq!(info["cache"].metrics.ca, 1);
     }
 
     #[test]
