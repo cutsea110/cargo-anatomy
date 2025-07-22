@@ -2220,6 +2220,135 @@ mod tests {
     }
 
     #[test]
+    fn path_dep_import_dependency() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/c/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
+
+        std::fs::write(
+            dir.path().join("a/Cargo.toml"),
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("a/src/lib.rs"), "pub mod foo;\n").unwrap();
+        std::fs::write(
+            dir.path().join("a/src/foo.rs"),
+            "#[derive(Debug)]\npub enum Foo { A }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("b/Cargo.toml"),
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../a\" }\nc = { path = \"./c\" }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("b/src/lib.rs"), "pub use c;\n").unwrap();
+
+        std::fs::write(
+            dir.path().join("b/c/Cargo.toml"),
+            "[package]\nname = \"c\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\na = { path = \"../../a\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("b/c/src/lib.rs"),
+            "use a::foo;\npub const X: foo::Foo = foo::Foo::A;\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+
+        let metadata = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path())
+            .exec()
+            .unwrap();
+        let mut crates = Vec::new();
+        for pkg in &metadata.packages {
+            crates.push((pkg.name.as_str().to_string(), parse_package(pkg).unwrap()));
+        }
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(info["c"].metrics.ce, 1);
+        assert_eq!(info["a"].metrics.ca, 1);
+    }
+
+    #[test]
+    fn external_crate_alias() {
+        use cargo_metadata::MetadataCommand;
+        let dir = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(external.path().join("src")).unwrap();
+        std::fs::write(
+            external.path().join("Cargo.toml"),
+            "[package]\nname = \"foo_bar\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(external.path().join("src/lib.rs"), "pub struct FooBar;\n").unwrap();
+
+        std::fs::create_dir(dir.path().join("app")).unwrap();
+        std::fs::create_dir(dir.path().join("app/src")).unwrap();
+        std::fs::write(
+            dir.path().join("app/Cargo.toml"),
+            format!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nfoo_bar = {{ path = \"{}\" }}\n",
+                external.path().display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("app/src/lib.rs"),
+            "use foo_bar as foo; pub struct App { d: foo::FooBar }\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\"]\n",
+        )
+        .unwrap();
+
+        let metadata_app = MetadataCommand::new()
+            .no_deps()
+            .current_dir(dir.path().join("app"))
+            .exec()
+            .unwrap();
+        let app_pkg = metadata_app.packages.first().unwrap();
+        let app_files = parse_package(app_pkg).unwrap();
+
+        let metadata_dep = MetadataCommand::new()
+            .no_deps()
+            .current_dir(external.path())
+            .exec()
+            .unwrap();
+        let dep_pkg = metadata_dep.packages.first().unwrap();
+        let dep_files = parse_package(dep_pkg).unwrap();
+
+        let crates = vec![
+            ("app".to_string(), app_files),
+            ("foo_bar".to_string(), dep_files),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let app = info.get("app").unwrap();
+        let dep = info.get("foo_bar").unwrap();
+        assert_eq!(app.metrics.ce, 1);
+        assert_eq!(dep.metrics.ca, 1);
+        assert_eq!(dep.metrics.ce, 0);
+        assert!(app
+            .external_depends_on
+            .get("App")
+            .and_then(|m| m.get("foo_bar"))
+            .map(|v| v.contains(&"FooBar".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn bin_target_dependency() {
         use cargo_metadata::MetadataCommand;
         let dir = tempfile::tempdir().unwrap();
