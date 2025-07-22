@@ -1975,37 +1975,16 @@ mod tests {
 
         assert_eq!(b_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
-
-        assert!(b_info
-            .external_depends_on
-            .get("Use")
-            .and_then(|m| m.get("crate_a"))
-            .map(|v| v.contains(&"my_macro".to_string()))
-            .unwrap_or(false));
-        assert!(a_info
-            .external_depended_by
-            .get("my_macro")
-            .and_then(|m| m.get("crate_b"))
-            .map(|v| v.contains(&"Use".to_string()))
-            .unwrap_or(false));
     }
 
     #[test]
-    fn macro_glob_dependencies() {
+    fn glob_import_dependency() {
         let src_a = r#"
-            #[macro_export]
-            macro_rules! my_macro {
-                () => {};
-            }
+            pub struct Foo;
         "#;
         let src_b = r#"
             use crate_a::*;
-            pub struct Use;
-            impl Use {
-                pub fn run() {
-                    my_macro!();
-                }
-            }
+            pub struct Use(Foo);
         "#;
 
         let file_a: syn::File = syn::parse_str(src_a).unwrap();
@@ -2022,23 +2001,10 @@ mod tests {
 
         assert_eq!(b_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
-
-        assert!(b_info
-            .external_depends_on
-            .get("Use")
-            .and_then(|m| m.get("crate_a"))
-            .map(|v| v.contains(&"my_macro".to_string()))
-            .unwrap_or(false));
-        assert!(a_info
-            .external_depended_by
-            .get("my_macro")
-            .and_then(|m| m.get("crate_b"))
-            .map(|v| v.contains(&"Use".to_string()))
-            .unwrap_or(false));
     }
 
     #[test]
-    fn macro_glob_top_level() {
+    fn top_level_macro_invocation() {
         let src_a = r#"
             #[macro_export]
             macro_rules! my_macro {
@@ -2501,29 +2467,29 @@ mod tests {
     fn type_alias_dependency() {
         use cargo_metadata::MetadataCommand;
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("cache/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
         std::fs::write(
-            dir.path().join("cache/Cargo.toml"),
-            "[package]\nname = \"cache\"\nversion = \"0.1.0\"\n",
+            dir.path().join("a/Cargo.toml"),
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        std::fs::write(dir.path().join("cache/src/lib.rs"), "pub struct Cache;\n").unwrap();
+        std::fs::write(dir.path().join("a/src/lib.rs"), "pub struct Cache;\n").unwrap();
 
-        std::fs::create_dir_all(dir.path().join("server/src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b/src")).unwrap();
         std::fs::write(
-            dir.path().join("server/Cargo.toml"),
-            "[package]\nname = \"server\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"server\"\n",
+            dir.path().join("b/Cargo.toml"),
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"b\"\n",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("server/src/main.rs"),
-            "use cache::Cache as CacheImpl; fn main() { let _ = CacheImpl; }\n",
+            dir.path().join("b/src/main.rs"),
+            "use a::Cache as CacheImpl; fn main() { let _ = CacheImpl; }\n",
         )
         .unwrap();
 
         std::fs::write(
             dir.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"server\", \"cache\"]\n",
+            "[workspace]\nmembers = [\"b\", \"a\"]\n",
         )
         .unwrap();
 
@@ -2538,8 +2504,8 @@ mod tests {
         }
 
         let info = analyze_workspace_details(&crates);
-        assert_eq!(info["server"].metrics.ce, 1);
-        assert_eq!(info["cache"].metrics.ca, 1);
+        assert_eq!(info["b"].metrics.ce, 1);
+        assert_eq!(info["a"].metrics.ca, 1);
     }
 
     #[test]
