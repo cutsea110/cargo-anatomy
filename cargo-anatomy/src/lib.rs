@@ -1107,12 +1107,13 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             tree: &syn::UseTree,
             first: Option<String>,
             ws: &HashSet<String>,
+            all_def: &HashMap<String, HashMap<String, ClassKind>>,
             map: &mut HashMap<String, (Option<String>, Option<String>)>,
         ) {
             match tree {
                 syn::UseTree::Path(p) => {
                     let root = first.clone().unwrap_or_else(|| p.ident.to_string());
-                    handle(&p.tree, Some(root), ws, map);
+                    handle(&p.tree, Some(root), ws, all_def, map);
                 }
                 syn::UseTree::Name(n) => {
                     // When `first` is `None`, the use statement is importing a
@@ -1147,14 +1148,31 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
                 }
                 syn::UseTree::Group(g) => {
                     for t in &g.items {
-                        handle(t, first.clone(), ws, map);
+                        handle(t, first.clone(), ws, all_def, map);
+                    }
+                }
+                syn::UseTree::Glob(_) => {
+                    if let Some(r) = &first {
+                        if ws.contains(r) {
+                            if let Some(defs) = all_def.get(r) {
+                                for name in defs.keys() {
+                                    map.insert(name.clone(), (Some(r.clone()), Some(name.clone())));
+                                }
+                            }
+                        }
                     }
                 }
                 _ => {}
             }
         }
 
-        handle(&i.tree, None, self.workspace_crates, &mut self.imports);
+        handle(
+            &i.tree,
+            None,
+            self.workspace_crates,
+            self.all_defined,
+            &mut self.imports,
+        );
         syn::visit::visit_item_use(self, i);
     }
     fn visit_path(&mut self, node: &'ast syn::Path) {
@@ -1273,7 +1291,8 @@ impl<'a> DetailVisitor<'a> {
                             .entry(current.clone())
                             .or_default()
                             .insert(name);
-                    } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
+                    } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned()
+                    {
                         let lookup = orig.unwrap_or(name.clone());
                         if self
                             .all_defined
@@ -1935,6 +1954,53 @@ mod tests {
             impl Use {
                 pub fn run() {
                     crate_a::my_macro!();
+                }
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(b_info
+            .external_depends_on
+            .get("Use")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"my_macro".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("my_macro")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"Use".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn macro_glob_dependencies() {
+        let src_a = r#"
+            #[macro_export]
+            macro_rules! my_macro {
+                () => {};
+            }
+        "#;
+        let src_b = r#"
+            use crate_a::*;
+            pub struct Use;
+            impl Use {
+                pub fn run() {
+                    my_macro!();
                 }
             }
         "#;
