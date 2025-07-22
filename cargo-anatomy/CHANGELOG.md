@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2025-07-22
+### Fixed
+- Correctly detect dependencies imported via module paths and aliases.
+
 ## [0.5.0] - 2025-07-21
 ### Added
 - Configurable evaluation thresholds.
