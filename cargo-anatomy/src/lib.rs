@@ -1,10 +1,8 @@
 //! Utilities for analyzing Rust crates and computing package metrics.
+use log::{debug, info};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-
-use log::{debug, info};
-
-use serde::{Deserialize, Serialize};
 use std::io;
 use std::panic::Location;
 use syn::{visit::Visit, File};
