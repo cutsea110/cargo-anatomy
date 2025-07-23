@@ -508,6 +508,24 @@ fn custom_config_thresholds() {
 }
 
 #[test]
+fn dotfile_used_as_default_config() {
+    let dir = create_workspace(&[("pkg", "pub trait T {} pub struct S;\n")]);
+    let config = r#"
+[evaluation]
+  [evaluation.abstraction]
+  abstract_min = 0.4
+  concrete_max = 0.3
+"#;
+    std::fs::write(dir.path().join(".anatomy.toml"), config).unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["crates"][0]["evaluation"]["a"], "abstract");
+}
+
+#[test]
 fn init_creates_config() {
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
