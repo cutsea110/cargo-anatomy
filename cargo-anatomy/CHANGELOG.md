@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2025-07-23
+### Fixed
+- Improved workspace dependency detection for glob and macro imports.
+- Resolved issues with type alias dependencies.
+
 ## [0.5.1] - 2025-07-22
 ### Fixed
 - Correctly detect dependencies imported via module paths and aliases.

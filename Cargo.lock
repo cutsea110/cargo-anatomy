@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-anatomy"
-version = "0.5.2-rc1"
+version = "0.5.2"
 dependencies = [
  "assert_cmd",
  "cargo_metadata",
