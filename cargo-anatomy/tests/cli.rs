@@ -531,7 +531,7 @@ fn init_creates_config() {
     let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
     cmd.arg("init").current_dir(dir.path());
     cmd.assert().success();
-    let path = dir.path().join("anatomy.conf");
+    let path = dir.path().join(".anatomy.toml");
     assert!(path.exists());
     let contents = std::fs::read_to_string(path).unwrap();
     assert!(contents.contains("[evaluation]"));

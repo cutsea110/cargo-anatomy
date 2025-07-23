@@ -388,7 +388,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 && args[1] == "init" {
-        let path = Path::new("anatomy.conf");
+        let path = Path::new(".anatomy.toml");
         return init_config(path);
     }
 
