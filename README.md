@@ -133,7 +133,7 @@ Enable `RUST_LOG=info` to see progress logs during analysis.
 
 ## Configuration
 
-`cargo-anatomy` looks for an `anatomy.conf` file to customize how metric values are evaluated. Run `cargo anatomy init` to create a template in the current directory. The file is written in TOML and contains the following sections and defaults:
+`cargo-anatomy` looks for a `.anatomy.toml` file at the workspace root to customize how metric values are evaluated. Run `cargo anatomy init` to create a template `anatomy.conf` in the current directory. Pass `-c <FILE>` to use a different configuration. The file is written in TOML and contains the following sections and defaults:
 
 ```toml
 [evaluation]

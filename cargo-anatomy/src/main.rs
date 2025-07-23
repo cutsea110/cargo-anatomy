@@ -6,7 +6,7 @@ use log::info;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const METRICS_HELP: &[&str] = &[
     "Metrics:",
@@ -435,32 +435,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
         .unwrap_or_else(|| "json".to_string());
-    let eval_thresholds =
-        if let Some(path) = matches.opt_str("c").or_else(|| matches.opt_str("config")) {
-            match std::fs::read_to_string(&path) {
-                Ok(s) => match toml::from_str::<cargo_anatomy::Config>(&s) {
-                    Ok(cfg) => cfg.evaluation,
-                    Err(e) => {
-                        eprintln!("failed to parse config: {}", e);
-                        cargo_anatomy::EvaluationThresholds::default()
-                    }
-                },
-                Err(e) => {
-                    eprintln!("failed to read config: {}", e);
-                    cargo_anatomy::EvaluationThresholds::default()
-                }
-            }
-        } else {
-            cargo_anatomy::EvaluationThresholds::default()
-        };
-    let config_used = cargo_anatomy::Config {
-        evaluation: eval_thresholds.clone(),
-    };
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();
     }
     let metadata = cargo_anatomy::loc_try!(cmd.exec());
+
+    let config_path: Option<PathBuf> = matches
+        .opt_str("c")
+        .or_else(|| matches.opt_str("config"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            let default = Path::new(&metadata.workspace_root).join(".anatomy.toml");
+            if default.exists() {
+                Some(default)
+            } else {
+                None
+            }
+        });
+
+    let eval_thresholds = if let Some(ref path) = config_path {
+        match std::fs::read_to_string(path) {
+            Ok(s) => match toml::from_str::<cargo_anatomy::Config>(&s) {
+                Ok(cfg) => cfg.evaluation,
+                Err(e) => {
+                    eprintln!("failed to parse config: {}", e);
+                    cargo_anatomy::EvaluationThresholds::default()
+                }
+            },
+            Err(e) => {
+                eprintln!("failed to read config: {}", e);
+                cargo_anatomy::EvaluationThresholds::default()
+            }
+        }
+    } else {
+        cargo_anatomy::EvaluationThresholds::default()
+    };
+    let config_used = cargo_anatomy::Config {
+        evaluation: eval_thresholds.clone(),
+    };
     info!(
         "found {} workspace members",
         metadata.workspace_members.len()
