@@ -537,3 +537,19 @@ fn init_creates_config() {
     assert!(contents.contains("[evaluation]"));
     assert!(contents.contains("abstract_min"));
 }
+
+#[test]
+fn fails_on_h_lt() {
+    let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["--h-lt", "1.1"]).current_dir(dir.path());
+    cmd.assert().failure();
+}
+
+#[test]
+fn fails_on_d_prime_ge() {
+    let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["--d-prime-ge", "0.9"]).current_dir(dir.path());
+    cmd.assert().failure();
+}

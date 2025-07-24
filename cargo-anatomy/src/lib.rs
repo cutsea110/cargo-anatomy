@@ -18,10 +18,12 @@ where
     E: std::fmt::Display,
 {
     let loc = Location::caller();
-    Box::new(io::Error::new(
-        io::ErrorKind::Other,
-        format!("{} at {}:{}", err, loc.file(), loc.line()),
-    ))
+    Box::new(io::Error::other(format!(
+        "{} at {}:{}",
+        err,
+        loc.file(),
+        loc.line()
+    )))
 }
 
 /// Try expression and attach location info on error.
@@ -142,7 +144,7 @@ pub struct MetricsResult {
 }
 
 /// Threshold values used when evaluating metrics.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct EvaluationThresholds {
     #[serde(default)]
     pub abstraction: AbstractionThresholds,
@@ -155,29 +157,10 @@ pub struct EvaluationThresholds {
 }
 
 /// Root structure for configuration files.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub evaluation: EvaluationThresholds,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            evaluation: EvaluationThresholds::default(),
-        }
-    }
-}
-
-impl Default for EvaluationThresholds {
-    fn default() -> Self {
-        Self {
-            abstraction: Default::default(),
-            cohesion: Default::default(),
-            instability: Default::default(),
-            distance: Default::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -434,12 +417,12 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
         fn from_type(ty: &syn::Type, self_ty: &str) -> Option<String> {
             match ty {
                 syn::Type::Path(p) => from_path(&p.path, self_ty),
-                syn::Type::Reference(r) => from_type(&*r.elem, self_ty),
+                syn::Type::Reference(r) => from_type(&r.elem, self_ty),
                 syn::Type::ImplTrait(it) => from_impl_trait(it),
                 syn::Type::TraitObject(obj) => from_trait_object(obj),
                 syn::Type::Paren(p) => from_type(&p.elem, self_ty),
                 syn::Type::Group(g) => from_type(&g.elem, self_ty),
-                syn::Type::Ptr(p) => from_type(&*p.elem, self_ty),
+                syn::Type::Ptr(p) => from_type(&p.elem, self_ty),
                 _ => None,
             }
         }
@@ -881,7 +864,7 @@ pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<Stri
     for (name, detail) in details {
         let entry = graph.entry(name.clone()).or_default();
         for map in detail.external_depends_on.values() {
-            for (krate, _) in map {
+            for krate in map.keys() {
                 entry.insert(krate.clone());
             }
         }
@@ -892,6 +875,7 @@ pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<Stri
         .map(|(k, v)| (k, v.into_iter().collect()))
         .collect();
 
+    #[allow(clippy::too_many_arguments)]
     fn strongconnect(
         v: &String,
         index: &mut usize,
@@ -1278,7 +1262,7 @@ impl<'a> DetailVisitor<'a> {
                     if self
                         .all_defined
                         .get(r)
-                        .map_or(false, |d| d.contains_key(lookup))
+                        .is_some_and(|d| d.contains_key(lookup))
                     {
                         self.external
                             .entry(current.clone())
@@ -1300,7 +1284,7 @@ impl<'a> DetailVisitor<'a> {
                     if self
                         .all_defined
                         .get(&import_root)
-                        .map_or(false, |d| d.contains_key(&lookup))
+                        .is_some_and(|d| d.contains_key(&lookup))
                     {
                         self.external
                             .entry(current.clone())

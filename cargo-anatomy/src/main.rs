@@ -1,6 +1,5 @@
 //! CLI entry point for the cargo-anatomy tool.
 use cargo_anatomy::{analyze_workspace_details_with_thresholds, parse_package, CrateKind};
-use env_logger;
 use getopts::Options;
 use log::info;
 use serde::Serialize;
@@ -93,7 +92,7 @@ fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
         }
     }
     pkg.targets
-        .get(0)
+        .first()
         .map(|t| t.name.clone())
         .unwrap_or_else(|| pkg.name.replace('-', "_"))
 }
@@ -196,7 +195,7 @@ mod graphviz_dot {
             if let Some(src_entry) = root.crates.get(i) {
                 if let Some(src_details) = &src_entry.details {
                     for maps in src_details.external_depends_on.values() {
-                        for (dst, _) in maps {
+                        for dst in maps.keys() {
                             if !edges.insert((src.clone(), dst.clone())) {
                                 continue;
                             }
@@ -275,7 +274,7 @@ mod mermaid {
             if let Some(src_entry) = root.crates.get(i) {
                 if let Some(src_details) = &src_entry.details {
                     for maps in src_details.external_depends_on.values() {
-                        for (dst, _) in maps {
+                        for dst in maps.keys() {
                             if !edges.insert((src.clone(), dst.clone())) {
                                 continue;
                             }
@@ -409,11 +408,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     opts.optopt("c", "config", "Path to evaluation config file", "FILE");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
+    opts.optopt("", "h-lt", "Fail if H < VAL (experimental)", "VAL");
+    opts.optopt("", "h-le", "Fail if H <= VAL (experimental)", "VAL");
+    opts.optopt("", "d-prime-gt", "Fail if D' > VAL (experimental)", "VAL");
+    opts.optopt("", "d-prime-ge", "Fail if D' >= VAL (experimental)", "VAL");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            eprintln!("{}", f.to_string());
+            eprintln!("{}", f);
             print_help(&opts);
             return Ok(());
         }
@@ -435,6 +438,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .opt_str("o")
         .or_else(|| matches.opt_str("output"))
         .unwrap_or_else(|| "json".to_string());
+    let h_lt = matches
+        .opt_str("h-lt")
+        .map(|s| s.parse::<f64>())
+        .transpose()?;
+    let h_le = matches
+        .opt_str("h-le")
+        .map(|s| s.parse::<f64>())
+        .transpose()?;
+    let d_prime_gt = matches
+        .opt_str("d-prime-gt")
+        .map(|s| s.parse::<f64>())
+        .transpose()?;
+    let d_prime_ge = matches
+        .opt_str("d-prime-ge")
+        .map(|s| s.parse::<f64>())
+        .transpose()?;
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();
@@ -519,6 +538,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let cycles = cargo_anatomy::dependency_cycles(&details_map);
 
+    let mut threshold_failed = false;
+    for detail in details_map.values() {
+        if let Some(th) = h_lt {
+            if detail.metrics.h < th {
+                threshold_failed = true;
+            }
+        }
+        if let Some(th) = h_le {
+            if detail.metrics.h <= th {
+                threshold_failed = true;
+            }
+        }
+        if let Some(th) = d_prime_gt {
+            if detail.metrics.d_prime > th {
+                threshold_failed = true;
+            }
+        }
+        if let Some(th) = d_prime_ge {
+            if detail.metrics.d_prime >= th {
+                threshold_failed = true;
+            }
+        }
+    }
+
     if show_all {
         cargo_anatomy::loc_try!(emit_results(
             details_map,
@@ -553,6 +596,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             false,
             config_used
         ));
+    }
+    if threshold_failed {
+        std::process::exit(1);
     }
     Ok(())
 }
