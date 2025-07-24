@@ -408,10 +408,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     opts.optopt("c", "config", "Path to evaluation config file", "FILE");
     opts.optflag("?", "", "Show this help message");
     opts.optflag("h", "help", "Show this help message");
-    opts.optopt("", "h-lt", "Fail if H < VAL", "VAL");
-    opts.optopt("", "h-le", "Fail if H <= VAL", "VAL");
-    opts.optopt("", "d-prime-gt", "Fail if D' > VAL", "VAL");
-    opts.optopt("", "d-prime-ge", "Fail if D' >= VAL", "VAL");
+    opts.optopt("", "h-lt", "Fail if H < VAL (experimental)", "VAL");
+    opts.optopt("", "h-le", "Fail if H <= VAL (experimental)", "VAL");
+    opts.optopt("", "d-prime-gt", "Fail if D' > VAL (experimental)", "VAL");
+    opts.optopt("", "d-prime-ge", "Fail if D' >= VAL (experimental)", "VAL");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,

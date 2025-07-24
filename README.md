@@ -71,6 +71,9 @@ cargo anatomy -o yaml
 cargo anatomy -o dot
 # Output in Mermaid format
 cargo anatomy -o mermaid
+
+# Fail if metrics violate thresholds (experimental)
+cargo anatomy --h-lt 1.1 --d-prime-ge 0.9
 ```
 
 For custom evaluation thresholds, run `cargo anatomy init` to generate a
