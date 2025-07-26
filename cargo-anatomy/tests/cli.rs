@@ -166,6 +166,43 @@ fn outputs_html() {
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("<!DOCTYPE html>"));
     assert!(s.contains("foo_bar"));
+    assert!(s.contains("N:"));
+}
+
+#[test]
+fn html_edge_shows_ce() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("a")).unwrap();
+    std::fs::create_dir(dir.path().join("a/src")).unwrap();
+    std::fs::create_dir(dir.path().join("b")).unwrap();
+    std::fs::create_dir(dir.path().join("b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("a/Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\n[dependencies]\nb = { path = \"../b\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("a/src/lib.rs"),
+        "use b::B; pub struct A(B);\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("b/Cargo.toml"),
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("b/src/lib.rs"), "pub struct B;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "html"]).current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("Ce:"));
 }
 
 #[test]

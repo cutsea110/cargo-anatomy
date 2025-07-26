@@ -376,15 +376,26 @@ mod html {
 <svg width="800" height="600"></svg>
 <script>
 const graph = __DATA__;
+const labelEdges = __LABEL__;
 const width = 800, height = 600;
 const svg = d3.select('svg');
 const simulation = d3.forceSimulation(graph.nodes)
   .force('link', d3.forceLink(graph.links).id(d => d.id).distance(120))
   .force('charge', d3.forceManyBody().strength(-400))
   .force('center', d3.forceCenter(width / 2, height / 2));
-const link = svg.append('g').selectAll('line')
-  .data(graph.links).enter().append('line')
-  .attr('stroke', '#999');
+const link = svg.append('g').selectAll('g')
+  .data(graph.links)
+  .enter()
+  .append('g');
+link.append('line').attr('stroke', '#999');
+link.append('title').text(d => `Ce: ${d.value}`);
+if (labelEdges) {
+  link.append('text')
+    .attr('font-size', 10)
+    .attr('dy', -4)
+    .attr('fill', '#555')
+    .text(d => d.value);
+}
 const node = svg.append('g').selectAll('g')
   .data(graph.nodes)
   .enter().append('g')
@@ -399,7 +410,7 @@ node.append('text')
   .attr('x', 12)
   .attr('dy', '.35em')
   .text(d => d.label);
-node.append('title').text(d => `${d.label}\nCa: ${d.metrics.ca}\nCe: ${d.metrics.ce}\nA: ${d.metrics.a.toFixed(2)}\nI: ${d.metrics.i.toFixed(2)}\nD': ${d.metrics.d_prime.toFixed(2)}\nH: ${d.metrics.h.toFixed(2)}`);
+node.append('title').text(d => `${d.label}\nN: ${d.metrics.n}\nR: ${d.metrics.r}\nH: ${d.metrics.h.toFixed(2)}\nCa: ${d.metrics.ca}\nCe: ${d.metrics.ce}\nA: ${d.metrics.a.toFixed(2)}\nI: ${d.metrics.i.toFixed(2)}\nD: ${d.metrics.d.toFixed(2)}\nD': ${d.metrics.d_prime.toFixed(2)}`);
 function dragstarted(event, d) {
   if (!event.active) simulation.alphaTarget(0.3).restart();
   d.fx = d.x; d.fy = d.y;
@@ -414,12 +425,19 @@ simulation.on('tick', () => {
       .attr('y1', d => d.source.y)
       .attr('x2', d => d.target.x)
       .attr('y2', d => d.target.y);
+  if (labelEdges) {
+    link.select('text')
+      .attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2);
+  }
   node.attr('transform', d => `translate(${d.x},${d.y})`);
 });
 </script>
 </body>
 </html>"#;
-        let html = template.replace("__DATA__", &data_str);
+        let html = template
+            .replace("__DATA__", &data_str)
+            .replace("__LABEL__", &label_edges.to_string());
         Ok(html)
     }
 }
