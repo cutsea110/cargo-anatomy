@@ -1,7 +1,7 @@
 # Output Format Schema
 
 This document describes the JSON/YAML output produced by `cargo anatomy`.
-When using `-o dot`, the tool outputs a Graphviz DOT graph instead which is not detailed here. The `-o mermaid` option similarly emits a Mermaid diagram.
+When using `-o dot`, the tool outputs a Graphviz DOT graph instead which is not detailed here. The `-o mermaid` option similarly emits a Mermaid diagram. The `-o html` option outputs an interactive HTML graph.
 The command prints a single object with three sections:
 
 ```json

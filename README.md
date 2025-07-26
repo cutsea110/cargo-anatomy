@@ -71,6 +71,8 @@ cargo anatomy -o yaml
 cargo anatomy -o dot
 # Output in Mermaid format
 cargo anatomy -o mermaid
+# Output in HTML format
+cargo anatomy -o html
 
 # Fail if metrics violate thresholds (experimental)
 cargo anatomy --h-lt 1.1 --d-prime-ge 0.9
@@ -79,7 +81,7 @@ cargo anatomy --h-lt 1.1 --d-prime-ge 0.9
 For custom evaluation thresholds, run `cargo anatomy init` to generate a
 template configuration and pass `-c <FILE>` to load it. See the [Configuration](#configuration) section for more details.
 
-The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output, `-o dot` for Graphviz or `-o mermaid` for Mermaid diagrams. When using `-o dot`, you can write the graph to a file and convert it with Graphviz: `cargo anatomy -o dot > graph.dot && dot -Tpng graph.dot -o graph.png`. Dependency arrows are labeled with the efferent couple count from the source crate when the `-a` flag is used. Graphviz and Mermaid outputs omit dependency edges unless `-a` is supplied, so combining these formats with `-a` is recommended when you want to visualize the graph.
+The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output, `-o dot` for Graphviz, `-o mermaid` for Mermaid diagrams or `-o html` for an interactive HTML graph. When using `-o dot`, you can write the graph to a file and convert it with Graphviz: `cargo anatomy -o dot > graph.dot && dot -Tpng graph.dot -o graph.png`. Dependency arrows are labeled with the efferent couple count from the source crate when the `-a` flag is used. Graphviz and Mermaid outputs omit dependency edges unless `-a` is supplied, so combining these formats with `-a` is recommended when you want to visualize the graph.
 
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 

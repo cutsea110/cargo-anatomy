@@ -296,6 +296,127 @@ mod mermaid {
     }
 }
 
+mod html {
+    use super::{CrateDetails, OutputEntry, OutputRoot};
+    use serde::Serialize;
+    use std::collections::HashSet;
+
+    #[derive(Serialize)]
+    struct Node {
+        id: String,
+        label: String,
+        metrics: cargo_anatomy::Metrics,
+        evaluation: cargo_anatomy::Evaluation,
+    }
+
+    #[derive(Serialize)]
+    struct Edge {
+        source: String,
+        target: String,
+        value: usize,
+    }
+
+    fn efferent_couples(details: &CrateDetails, target: &str) -> usize {
+        details
+            .external_depends_on
+            .iter()
+            .filter(|(_, map)| map.contains_key(target))
+            .count()
+    }
+
+    pub(super) fn to_string(
+        root: &OutputRoot<OutputEntry>,
+        name_map: &[(String, String)],
+        label_edges: bool,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for (i, (crate_name, _)) in name_map.iter().enumerate() {
+            if let Some(entry) = root.crates.get(i) {
+                nodes.push(Node {
+                    id: crate_name.clone(),
+                    label: crate_name.clone(),
+                    metrics: entry.metrics.clone(),
+                    evaluation: entry.evaluation.clone(),
+                });
+            }
+        }
+
+        let mut seen = HashSet::new();
+        for (i, (src, _)) in name_map.iter().enumerate() {
+            if let Some(src_entry) = root.crates.get(i) {
+                if let Some(src_details) = &src_entry.details {
+                    for maps in src_details.external_depends_on.values() {
+                        for dst in maps.keys() {
+                            if !seen.insert((src.clone(), dst.clone())) {
+                                continue;
+                            }
+                            let ec = efferent_couples(src_details, dst);
+                            edges.push(Edge {
+                                source: src.clone(),
+                                target: dst.clone(),
+                                value: if label_edges { ec } else { 1 },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let data = serde_json::json!({"nodes": nodes, "links": edges});
+        let data_str = serde_json::to_string(&data)?;
+        let template = r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>svg { border: 1px solid #ccc; }</style>
+</head>
+<body>
+<svg width="800" height="600"></svg>
+<script>
+const graph = __DATA__;
+const width = 800, height = 600;
+const svg = d3.select('svg');
+const simulation = d3.forceSimulation(graph.nodes)
+  .force('link', d3.forceLink(graph.links).id(d => d.id).distance(120))
+  .force('charge', d3.forceManyBody().strength(-400))
+  .force('center', d3.forceCenter(width / 2, height / 2));
+const link = svg.append('g').selectAll('line')
+  .data(graph.links).enter().append('line')
+  .attr('stroke', '#999');
+const node = svg.append('g').selectAll('circle')
+  .data(graph.nodes).enter().append('circle')
+  .attr('r', 8).attr('fill', '#69b3a2')
+  .call(d3.drag()
+      .on('start', dragstarted)
+      .on('drag', dragged)
+      .on('end', dragended));
+node.append('title').text(d => d.label);
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+simulation.on('tick', () => {
+  link.attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+  node.attr('cx', d => d.x).attr('cy', d => d.y);
+});
+</script>
+</body>
+</html>"#;
+        let html = template.replace("__DATA__", &data_str);
+        Ok(html)
+    }
+}
+
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
@@ -370,6 +491,7 @@ where
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
         "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
         "mermaid" => cargo_anatomy::loc_try!(mermaid::to_string(&root, name_map, label_edges)),
+        "html" => cargo_anatomy::loc_try!(html::to_string(&root, name_map, label_edges)),
         other => {
             eprintln!("unknown output format: {}", other);
             return Ok(());
@@ -402,7 +524,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     opts.optopt(
         "o",
         "output",
-        "Output format: json, yaml, dot or mermaid",
+        "Output format: json, yaml, dot, mermaid or html",
         "FORMAT",
     );
     opts.optopt("c", "config", "Path to evaluation config file", "FILE");
