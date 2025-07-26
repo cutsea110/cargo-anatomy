@@ -1,10 +1,9 @@
 //! CLI entry point for the cargo-anatomy tool.
 use cargo_anatomy::{analyze_workspace_details_with_thresholds, parse_package, CrateKind};
-use getopts::Options;
+use clap::{Arg, ArgAction, Command};
 use log::info;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 const METRICS_HELP: &[&str] = &[
@@ -51,24 +50,6 @@ const CONFIG_TEMPLATE: &str = "# Configuration for cargo-anatomy\n\n\
   good_max = 0.4\n\
   # Minimum normalized distance considered bad\n\
   bad_min = 0.6\n";
-
-fn print_help_to(opts: &Options, mut w: impl Write) -> io::Result<()> {
-    let brief = format!(
-        "cargo-anatomy {}\nUsage: cargo anatomy [options]",
-        env!("CARGO_PKG_VERSION")
-    );
-    write!(w, "{}", opts.usage(&brief))?;
-    writeln!(w)?;
-
-    writeln!(w, "{}", METRICS_HELP.join("\n"))?;
-
-    writeln!(w, "{}", EVALUATION_HELP.join("\n"))?;
-    Ok(())
-}
-
-fn print_help(opts: &Options) {
-    let _ = print_help_to(opts, io::stdout());
-}
 
 fn init_config<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>> {
     let p = path.as_ref();
@@ -384,76 +365,114 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .format_source_path(true)
         .format_line_number(true)
         .init();
-    let args: Vec<String> = std::env::args().collect();
+    let matches = Command::new("cargo-anatomy")
+        .version(env!("CARGO_PKG_VERSION"))
+        .disable_help_flag(true)
+        .after_help(format!(
+            "{}\n\n{}",
+            METRICS_HELP.join("\n"),
+            EVALUATION_HELP.join("\n")
+        ))
+        .subcommand(
+            Command::new("init")
+                .about("Generate a template evaluation config")
+                .arg(
+                    Arg::new("path")
+                        .value_name("PATH")
+                        .help("Where to create the config file")
+                        .required(false),
+                ),
+        )
+        .arg(
+            Arg::new("all")
+                .short('a')
+                .long("all")
+                .help("Show classes and dependency graphs")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("include-external")
+                .short('x')
+                .long("include-external")
+                .help("Include external dependencies in analysis (slower)")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("output")
+                .short('o')
+                .long("output")
+                .help("Output format: json, yaml, dot or mermaid")
+                .value_name("FORMAT")
+                .default_value("json"),
+        )
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config")
+                .help("Path to evaluation config file")
+                .value_name("FILE"),
+        )
+        .arg(
+            Arg::new("h-lt")
+                .long("h-lt")
+                .value_name("VAL")
+                .help("Fail if H < VAL (experimental)"),
+        )
+        .arg(
+            Arg::new("h-le")
+                .long("h-le")
+                .value_name("VAL")
+                .help("Fail if H <= VAL (experimental)"),
+        )
+        .arg(
+            Arg::new("d-prime-gt")
+                .long("d-prime-gt")
+                .value_name("VAL")
+                .help("Fail if D' > VAL (experimental)"),
+        )
+        .arg(
+            Arg::new("d-prime-ge")
+                .long("d-prime-ge")
+                .value_name("VAL")
+                .help("Fail if D' >= VAL (experimental)"),
+        )
+        .arg(
+            Arg::new("help")
+                .short('h')
+                .action(ArgAction::Help)
+                .long("help")
+                .visible_short_alias('?')
+                .help("Show this help message"),
+        )
+        .get_matches();
 
-    if args.len() > 1 && args[1] == "init" {
-        let path = Path::new(".anatomy.toml");
+    if let Some(("init", sub_m)) = matches.subcommand() {
+        let path = sub_m
+            .get_one::<String>("path")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".anatomy.toml"));
         return init_config(path);
     }
 
-    let mut opts = Options::new();
-    opts.optflag("a", "all", "Show classes and dependency graphs");
-    opts.optflag(
-        "x",
-        "include-external",
-        "Include external dependencies in analysis (slower)",
-    );
-    opts.optflag("V", "version", "Show version information");
-    opts.optopt(
-        "o",
-        "output",
-        "Output format: json, yaml, dot or mermaid",
-        "FORMAT",
-    );
-    opts.optopt("c", "config", "Path to evaluation config file", "FILE");
-    opts.optflag("?", "", "Show this help message");
-    opts.optflag("h", "help", "Show this help message");
-    opts.optopt("", "h-lt", "Fail if H < VAL (experimental)", "VAL");
-    opts.optopt("", "h-le", "Fail if H <= VAL (experimental)", "VAL");
-    opts.optopt("", "d-prime-gt", "Fail if D' > VAL (experimental)", "VAL");
-    opts.optopt("", "d-prime-ge", "Fail if D' >= VAL (experimental)", "VAL");
-
-    let matches = match opts.parse(&args[1..]) {
-        Ok(m) => m,
-        Err(f) => {
-            eprintln!("{}", f);
-            print_help(&opts);
-            return Ok(());
-        }
-    };
-
-    if matches.opt_present("V") || matches.opt_present("version") {
-        println!("{}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-
-    if matches.opt_present("?") || matches.opt_present("h") || matches.opt_present("help") {
-        print_help(&opts);
-        return Ok(());
-    }
-
-    let show_all = matches.opt_present("a") || matches.opt_present("all");
-    let include_external = matches.opt_present("x") || matches.opt_present("include-external");
+    let show_all = matches.get_flag("all");
+    let include_external = matches.get_flag("include-external");
     let format = matches
-        .opt_str("o")
-        .or_else(|| matches.opt_str("output"))
-        .unwrap_or_else(|| "json".to_string());
+        .get_one::<String>("output")
+        .map(|s| s.as_str())
+        .unwrap_or("json");
     let h_lt = matches
-        .opt_str("h-lt")
-        .map(|s| s.parse::<f64>())
-        .transpose()?;
+        .get_one::<String>("h-lt")
+        .and_then(|s| s.parse::<f64>().ok());
     let h_le = matches
-        .opt_str("h-le")
-        .map(|s| s.parse::<f64>())
-        .transpose()?;
+        .get_one::<String>("h-le")
+        .and_then(|s| s.parse::<f64>().ok());
     let d_prime_gt = matches
-        .opt_str("d-prime-gt")
-        .map(|s| s.parse::<f64>())
-        .transpose()?;
+        .get_one::<String>("d-prime-gt")
+        .and_then(|s| s.parse::<f64>().ok());
     let d_prime_ge = matches
-        .opt_str("d-prime-ge")
-        .map(|s| s.parse::<f64>())
-        .transpose()?;
+        .get_one::<String>("d-prime-ge")
+        .and_then(|s| s.parse::<f64>().ok());
+
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if !include_external {
         cmd.no_deps();
@@ -461,8 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata = cargo_anatomy::loc_try!(cmd.exec());
 
     let config_path: Option<PathBuf> = matches
-        .opt_str("c")
-        .or_else(|| matches.opt_str("config"))
+        .get_one::<String>("config")
         .map(PathBuf::from)
         .or_else(|| {
             let default = Path::new(&metadata.workspace_root).join(".anatomy.toml");
@@ -567,7 +585,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             details_map,
             &name_map,
             cycles,
-            &format,
+            format,
             show_all,
             config_used.clone()
         ));
@@ -592,7 +610,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             metrics_map,
             &name_map,
             cycles,
-            &format,
+            format,
             false,
             config_used
         ));
