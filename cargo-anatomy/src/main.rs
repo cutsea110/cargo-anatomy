@@ -385,14 +385,21 @@ const simulation = d3.forceSimulation(graph.nodes)
 const link = svg.append('g').selectAll('line')
   .data(graph.links).enter().append('line')
   .attr('stroke', '#999');
-const node = svg.append('g').selectAll('circle')
-  .data(graph.nodes).enter().append('circle')
-  .attr('r', 8).attr('fill', '#69b3a2')
+const node = svg.append('g').selectAll('g')
+  .data(graph.nodes)
+  .enter().append('g')
   .call(d3.drag()
       .on('start', dragstarted)
       .on('drag', dragged)
       .on('end', dragended));
-node.append('title').text(d => d.label);
+node.append('circle')
+  .attr('r', 8)
+  .attr('fill', '#69b3a2');
+node.append('text')
+  .attr('x', 12)
+  .attr('dy', '.35em')
+  .text(d => d.label);
+node.append('title').text(d => `${d.label}\nCa: ${d.metrics.ca}\nCe: ${d.metrics.ce}\nA: ${d.metrics.a.toFixed(2)}\nI: ${d.metrics.i.toFixed(2)}\nD': ${d.metrics.d_prime.toFixed(2)}\nH: ${d.metrics.h.toFixed(2)}`);
 function dragstarted(event, d) {
   if (!event.active) simulation.alphaTarget(0.3).restart();
   d.fx = d.x; d.fy = d.y;
@@ -407,7 +414,7 @@ simulation.on('tick', () => {
       .attr('y1', d => d.source.y)
       .attr('x2', d => d.target.x)
       .attr('y2', d => d.target.y);
-  node.attr('cx', d => d.x).attr('cy', d => d.y);
+  node.attr('transform', d => `translate(${d.x},${d.y})`);
 });
 </script>
 </body>
