@@ -193,3 +193,32 @@ Set `<version>` to the tag for the published image. After building or pulling an
 image, run it as shown above. The runtime uses a distroless base for a smaller
 footprint.
 
+
+## GitHub Actions
+
+You can integrate `cargo-anatomy` in your CI pipeline. The example below installs
+`cargo-anatomy` and fails the job when metrics do not satisfy the configured thresholds.
+
+```yaml
+# .github/workflows/anatomy.yml
+name: cargo-anatomy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-rust@v1
+        with:
+          rust-version: stable
+      - name: Install cargo-anatomy
+        run: cargo install cargo-anatomy
+      - name: Run cargo-anatomy
+        run: cargo anatomy -c .anatomy.toml --h-lt 1.1 --d-prime-ge 0.9
+```
+
