@@ -198,6 +198,9 @@ footprint.
 
 You can integrate `cargo-anatomy` in your CI pipeline. The example below installs
 `cargo-anatomy` and fails the job when metrics do not satisfy the configured thresholds.
+Make sure a `.anatomy.toml` file is present in your repository so the workflow
+can load your evaluation settings. You can generate a template with
+`cargo anatomy init` and commit it to version control.
 
 ```yaml
 # .github/workflows/anatomy.yml
