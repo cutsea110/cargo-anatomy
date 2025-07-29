@@ -158,34 +158,56 @@ mod graphviz_dot {
             if let Some(entry) = root.crates.get(i) {
                 let m = &entry.metrics;
                 let e = &entry.evaluation;
-                out.push_str(&format!(
-                    "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
-                    crate_name,
-                    crate_name,
-                    m.n,
-                    m.r,
-                    m.h,
-                    m.ca,
-                    m.ce,
-                    m.a,
-                    m.i,
-                    m.d_prime,
-                    e.a,
-                    e.h,
-                    e.i,
-                    e.d_prime,
-                ));
-                if let Some(details) = &entry.details {
-                    if show_all_crates || show_types_crates.contains(crate_name) {
+                let detailed = show_all_crates || show_types_crates.contains(crate_name);
+                if detailed {
+                    out.push_str(&format!(
+                        "    subgraph cluster_{} {{\n",
+                        sanitize(crate_name)
+                    ));
+                    out.push_str(&format!(
+                        "        label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\";\n",
+                        crate_name,
+                        m.n,
+                        m.r,
+                        m.h,
+                        m.ca,
+                        m.ce,
+                        m.a,
+                        m.i,
+                        m.d_prime,
+                        e.a,
+                        e.h,
+                        e.i,
+                        e.d_prime,
+                    ));
+                    if let Some(details) = &entry.details {
                         for class in &details.classes {
-                            let node_id = format!("{}_{}", crate_name, class.name);
+                            let node_id = sanitize(&format!("{}_{}", crate_name, class.name));
                             out.push_str(&format!(
-                                "    \"{}\" [label=\"{}\"];\n",
-                                sanitize(&node_id),
-                                class.name
+                                "        \"{}\" [label=\"{}\"];\n",
+                                node_id, class.name
                             ));
                         }
                     }
+                    out.push_str("    }\n");
+                } else {
+                    out.push_str(&format!(
+                        "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
+                        crate_name,
+                        crate_name,
+                        m.n,
+                        m.r,
+                        m.h,
+                        m.ca,
+                        m.ce,
+                        m.a,
+                        m.i,
+                        m.d_prime,
+                        e.a,
+                        e.h,
+                        e.i,
+                        e.d_prime,
+                    ));
                 }
             }
         }

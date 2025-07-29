@@ -552,6 +552,8 @@ fn dot_show_types() {
     .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph cluster_crate_a"));
+    assert!(s.contains("subgraph cluster_crate_b"));
     assert!(s.contains("\"crate_a_X1\""));
     assert!(s.contains("\"crate_b_X2\""));
     assert!(s.contains("\"crate_a_X1\" -> \"crate_b_X2\""));
@@ -589,6 +591,8 @@ fn dot_show_types_single_crate() {
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph cluster_crate_a"));
+    assert!(!s.contains("subgraph cluster_crate_b"));
     assert!(s.contains("\"crate_a_X1\""));
     assert!(!s.contains("\"crate_b_X2\""));
     assert!(s.contains("\"crate_a_X1\" -> \"crate_b\""));
