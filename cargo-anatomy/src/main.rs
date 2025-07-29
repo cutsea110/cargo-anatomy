@@ -547,13 +547,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
     let mut show_types = matches.get_flag("show-types");
-    let show_types_crates: std::collections::HashSet<String> = matches
+    let raw_show_types_crates: std::collections::HashSet<String> = matches
         .get_many::<String>("show-types-crate")
         .into_iter()
         .flatten()
         .map(|s| s.to_string())
         .collect();
-    if !show_types_crates.is_empty() {
+    if !raw_show_types_crates.is_empty() {
         show_types = true;
     }
     let format = matches
@@ -646,6 +646,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         kind_map.insert(crate_name.clone(), kind);
         crates.push((crate_name, files));
+    }
+
+    let mut show_types_crates = std::collections::HashSet::new();
+    for name in &raw_show_types_crates {
+        if let Some((crate_name, _)) = name_map.iter().find(|(c, p)| c == name || p == name) {
+            show_types_crates.insert(crate_name.clone());
+        }
+    }
+    if !show_types_crates.is_empty() {
+        show_types = true;
     }
 
     let mut details_map = analyze_workspace_details_with_thresholds(&crates, &eval_thresholds);
