@@ -255,6 +255,107 @@ fn include_external_crate() {
 }
 
 #[test]
+fn dot_show_types_external_crate() {
+    let dir = tempfile::tempdir().unwrap();
+    // external crate outside of workspace
+    let external = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(external.path().join("src")).unwrap();
+    std::fs::write(
+        external.path().join("Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(external.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    std::fs::create_dir(dir.path().join("app")).unwrap();
+    std::fs::create_dir(dir.path().join("app/src")).unwrap();
+    std::fs::write(
+        dir.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
+            external.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("app/src/lib.rs"),
+        "use dep::Dep; pub struct App(pub Dep);\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "dot", "--show-types-crates", "app,dep", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph cluster_app"));
+    assert!(s.contains("subgraph cluster_dep"));
+    assert!(s.contains("\"app_App\""));
+    assert!(s.contains("\"dep_Dep\""));
+    assert!(s.contains("\"app_App\" -> \"dep_Dep\""));
+}
+
+#[test]
+fn mermaid_show_types_external_crate() {
+    let dir = tempfile::tempdir().unwrap();
+    // external crate outside of workspace
+    let external = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(external.path().join("src")).unwrap();
+    std::fs::write(
+        external.path().join("Cargo.toml"),
+        "[package]\nname = \"dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(external.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    std::fs::create_dir(dir.path().join("app")).unwrap();
+    std::fs::create_dir(dir.path().join("app/src")).unwrap();
+    std::fs::write(
+        dir.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
+            external.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("app/src/lib.rs"),
+        "use dep::Dep; pub struct App(pub Dep);\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"app\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args([
+        "-a",
+        "-o",
+        "mermaid",
+        "--show-types-crates",
+        "app,dep",
+        "-x",
+    ])
+    .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph app"));
+    assert!(s.contains("subgraph dep"));
+    assert!(s.contains("app_App"));
+    assert!(s.contains("dep_Dep"));
+    assert!(s.contains("app_App --> dep_Dep"));
+}
+
+#[test]
 fn includes_evaluation_labels() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("pkg")).unwrap();
@@ -596,6 +697,94 @@ fn dot_show_types_single_crate() {
     assert!(s.contains("\"crate_a_X1\""));
     assert!(!s.contains("\"crate_b_X2\""));
     assert!(s.contains("\"crate_a_X1\" -> \"crate_b\""));
+}
+
+#[test]
+fn json_show_types() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_b/src/lib.rs"), "pub struct X2;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "--show-types-crates", "crate_a,crate_b", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    let a = map.get("crate_a").unwrap();
+    let b = map.get("crate_b").unwrap();
+    assert_eq!(a["details"]["classes"][0]["name"], "X1");
+    assert_eq!(b["details"]["classes"][0]["name"], "X2");
+}
+
+#[test]
+fn json_show_types_single_crate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_b/src/lib.rs"), "pub struct X2;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "--show-types-crates", "crate_a", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    let a = map.get("crate_a").unwrap();
+    let b = map.get("crate_b").unwrap();
+    assert_eq!(a["details"]["classes"][0]["name"], "X1");
+    assert_eq!(b["details"]["classes"][0]["name"], "X2");
 }
 
 #[test]
