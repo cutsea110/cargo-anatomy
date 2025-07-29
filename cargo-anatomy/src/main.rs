@@ -136,37 +136,79 @@ mod graphviz_dot {
             .count()
     }
 
+    fn sanitize(name: &str) -> String {
+        name.replace('-', "_")
+    }
+
     pub(super) fn to_string(
         root: &OutputRoot<OutputEntry>,
         name_map: &[(String, String)],
         label_edges: bool,
+        show_types: bool,
+        show_types_crates: &std::collections::HashSet<String>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut out = String::new();
         out.push_str("digraph cargo_anatomy {\n");
         out.push_str("    rankdir=LR;\n");
         out.push_str("    node [shape=box];\n");
 
+        let show_all_crates = show_types && show_types_crates.is_empty();
+
         for (i, (crate_name, _)) in name_map.iter().enumerate() {
             if let Some(entry) = root.crates.get(i) {
                 let m = &entry.metrics;
                 let e = &entry.evaluation;
-                out.push_str(&format!(
-                    "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
-                    crate_name,
-                    crate_name,
-                    m.n,
-                    m.r,
-                    m.h,
-                    m.ca,
-                    m.ce,
-                    m.a,
-                    m.i,
-                    m.d_prime,
-                    e.a,
-                    e.h,
-                    e.i,
-                    e.d_prime,
-                ));
+                let detailed = show_all_crates || show_types_crates.contains(crate_name);
+                if detailed {
+                    out.push_str(&format!(
+                        "    subgraph cluster_{} {{\n",
+                        sanitize(crate_name)
+                    ));
+                    out.push_str(&format!(
+                        "        label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\";\n",
+                        crate_name,
+                        m.n,
+                        m.r,
+                        m.h,
+                        m.ca,
+                        m.ce,
+                        m.a,
+                        m.i,
+                        m.d_prime,
+                        e.a,
+                        e.h,
+                        e.i,
+                        e.d_prime,
+                    ));
+                    if let Some(details) = &entry.details {
+                        for class in &details.classes {
+                            let node_id = sanitize(&format!("{}_{}", crate_name, class.name));
+                            out.push_str(&format!(
+                                "        \"{}\" [label=\"{}\"];\n",
+                                node_id, class.name
+                            ));
+                        }
+                    }
+                    out.push_str("    }\n");
+                } else {
+                    out.push_str(&format!(
+                        "    \"{}\" [label=\"{}\\nn={} r={} h={:.2}\\nca={} ce={} a={:.2} i={:.2} d'={:.2}\\nA={:?} H={:?} I={:?} D'={:?}\"];\n",
+                        crate_name,
+                        crate_name,
+                        m.n,
+                        m.r,
+                        m.h,
+                        m.ca,
+                        m.ce,
+                        m.a,
+                        m.i,
+                        m.d_prime,
+                        e.a,
+                        e.h,
+                        e.i,
+                        e.d_prime,
+                    ));
+                }
             }
         }
 
@@ -175,19 +217,59 @@ mod graphviz_dot {
         for (i, (src, _)) in name_map.iter().enumerate() {
             if let Some(src_entry) = root.crates.get(i) {
                 if let Some(src_details) = &src_entry.details {
-                    for maps in src_details.external_depends_on.values() {
-                        for dst in maps.keys() {
-                            if !edges.insert((src.clone(), dst.clone())) {
+                    let src_detailed = show_all_crates || show_types_crates.contains(src);
+                    if src_detailed {
+                        for (s, targets) in &src_details.internal_depends_on {
+                            for t in targets {
+                                let id_src = sanitize(&format!("{}_{}", src, s));
+                                let id_dst = sanitize(&format!("{}_{}", src, t));
+                                out.push_str(&format!("    \"{}\" -> \"{}\";\n", id_src, id_dst));
+                            }
+                        }
+                    }
+                    for (s, maps) in &src_details.external_depends_on {
+                        for (dst_crate, types) in maps {
+                            if !name_map.iter().any(|(c, _)| c == dst_crate) {
                                 continue;
                             }
-                            let ec = efferent_couples(src_details, dst);
-                            if label_edges {
+                            let dst_detailed =
+                                show_all_crates || show_types_crates.contains(dst_crate);
+                            if src_detailed && dst_detailed {
+                                for t in types {
+                                    let id_src = sanitize(&format!("{}_{}", src, s));
+                                    let id_dst = sanitize(&format!("{}_{}", dst_crate, t));
+                                    out.push_str(&format!(
+                                        "    \"{}\" -> \"{}\";\n",
+                                        id_src, id_dst
+                                    ));
+                                }
+                            } else if src_detailed && !dst_detailed {
+                                let id_src = sanitize(&format!("{}_{}", src, s));
                                 out.push_str(&format!(
-                                    "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
-                                    src, dst, ec
+                                    "    \"{}\" -> \"{}\";\n",
+                                    id_src, dst_crate
                                 ));
+                            } else if !src_detailed && dst_detailed {
+                                for t in types {
+                                    let id_dst = sanitize(&format!("{}_{}", dst_crate, t));
+                                    out.push_str(&format!("    \"{}\" -> \"{}\";\n", src, id_dst));
+                                }
                             } else {
-                                out.push_str(&format!("    \"{}\" -> \"{}\";\n", src, dst));
+                                if !edges.insert((src.clone(), dst_crate.clone())) {
+                                    continue;
+                                }
+                                let ec = efferent_couples(src_details, dst_crate);
+                                if label_edges {
+                                    out.push_str(&format!(
+                                        "    \"{}\" -> \"{}\" [taillabel=\"{}\"];\n",
+                                        src, dst_crate, ec
+                                    ));
+                                } else {
+                                    out.push_str(&format!(
+                                        "    \"{}\" -> \"{}\";\n",
+                                        src, dst_crate
+                                    ));
+                                }
                             }
                         }
                     }
@@ -418,7 +500,13 @@ where
     let out_str = match format {
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
-        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
+        "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(
+            &root,
+            name_map,
+            label_edges,
+            show_types,
+            show_types_crates,
+        )),
         "mermaid" => {
             cargo_anatomy::loc_try!(mermaid::to_string(
                 &root,
