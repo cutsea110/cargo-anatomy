@@ -475,16 +475,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::new("show-types")
-                .long("show-types")
-                .help("In mermaid output, nest types inside crate boxes")
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("show-types-crate")
-                .long("show-types-crate")
-                .help("Crate to render with type-level detail (repeatable)")
-                .value_name("CRATE")
+            Arg::new("show-types-crates")
+                .long("show-types-crates")
+                .help("Comma-separated list of crates to render with type-level detail")
+                .value_name("CRATES")
+                .value_delimiter(',')
                 .action(ArgAction::Append),
         )
         .arg(
@@ -546,16 +541,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
-    let mut show_types = matches.get_flag("show-types");
     let raw_show_types_crates: std::collections::HashSet<String> = matches
-        .get_many::<String>("show-types-crate")
+        .get_many::<String>("show-types-crates")
         .into_iter()
         .flatten()
         .map(|s| s.to_string())
         .collect();
-    if !raw_show_types_crates.is_empty() {
-        show_types = true;
-    }
     let format = matches
         .get_one::<String>("output")
         .map(|s| s.as_str())
@@ -654,9 +645,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             show_types_crates.insert(crate_name.clone());
         }
     }
-    if !show_types_crates.is_empty() {
-        show_types = true;
-    }
+    let show_types = !show_types_crates.is_empty();
 
     let mut details_map = analyze_workspace_details_with_thresholds(&crates, &eval_thresholds);
     for (name, detail) in details_map.iter_mut() {

@@ -455,10 +455,8 @@ fn mermaid_show_types() {
         "-a",
         "-o",
         "mermaid",
-        "--show-types-crate",
-        "crate_a",
-        "--show-types-crate",
-        "crate_b",
+        "--show-types-crates",
+        "crate_a,crate_b",
         "-x",
     ])
     .current_dir(dir.path());
@@ -498,8 +496,15 @@ fn mermaid_show_types_single_crate() {
     .unwrap();
 
     let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
-    cmd.args(["-a", "-o", "mermaid", "--show-types-crate", "crate_a", "-x"])
-        .current_dir(dir.path());
+    cmd.args([
+        "-a",
+        "-o",
+        "mermaid",
+        "--show-types-crates",
+        "crate_a",
+        "-x",
+    ])
+    .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
     assert!(s.contains("subgraph crate_a"));
