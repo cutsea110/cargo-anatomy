@@ -599,6 +599,94 @@ fn dot_show_types_single_crate() {
 }
 
 #[test]
+fn json_show_types() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_b/src/lib.rs"), "pub struct X2;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "--show-types-crates", "crate_a,crate_b", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    let a = map.get("crate_a").unwrap();
+    let b = map.get("crate_b").unwrap();
+    assert_eq!(a["details"]["classes"][0]["name"], "X1");
+    assert_eq!(b["details"]["classes"][0]["name"], "X2");
+}
+
+#[test]
+fn json_show_types_single_crate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_b/src/lib.rs"), "pub struct X2;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "--show-types-crates", "crate_a", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.get("crates").unwrap().as_array().unwrap();
+    let mut map = std::collections::HashMap::new();
+    for item in arr {
+        let pkg = item["crate_name"].as_str().unwrap();
+        map.insert(pkg, item);
+    }
+    let a = map.get("crate_a").unwrap();
+    let b = map.get("crate_b").unwrap();
+    assert_eq!(a["details"]["classes"][0]["name"], "X1");
+    assert_eq!(b["details"]["classes"][0]["name"], "X2");
+}
+
+#[test]
 fn mermaid_without_a_has_no_edge_labels() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("a/src")).unwrap();
