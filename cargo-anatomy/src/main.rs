@@ -221,15 +221,18 @@ mod mermaid {
         name_map: &[(String, String)],
         label_edges: bool,
         show_types: bool,
+        show_types_crates: &std::collections::HashSet<String>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut out = String::new();
         out.push_str("graph LR\n");
+        let show_all_crates = show_types && show_types_crates.is_empty();
         for (i, (crate_name, _)) in name_map.iter().enumerate() {
             if let Some(entry) = root.crates.get(i) {
                 let id = sanitize(crate_name);
                 let m = &entry.metrics;
                 let e = &entry.evaluation;
-                if show_types {
+                let detailed = show_all_crates || show_types_crates.contains(crate_name);
+                if detailed {
                     out.push_str(&format!(
                         "    subgraph {}[\"{}<br/>n={} r={} h={:.2}<br/>ca={} ce={} a={:.2} i={:.2} d'={:.2}<br/>A={:?} H={:?} I={:?} D'={:?}\"]\n",
                         id,
@@ -281,7 +284,8 @@ mod mermaid {
         for (i, (src, _)) in name_map.iter().enumerate() {
             if let Some(src_entry) = root.crates.get(i) {
                 if let Some(src_details) = &src_entry.details {
-                    if show_types {
+                    let src_detailed = show_all_crates || show_types_crates.contains(src);
+                    if src_detailed {
                         for (s, targets) in &src_details.internal_depends_on {
                             for t in targets {
                                 let id_src = sanitize(&format!("{}_{}", src, s));
@@ -289,26 +293,37 @@ mod mermaid {
                                 out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
                             }
                         }
-                        for (s, maps) in &src_details.external_depends_on {
-                            for (dst_crate, types) in maps {
-                                if name_map.iter().any(|(c, _)| c == dst_crate) {
-                                    for t in types {
-                                        let id_src = sanitize(&format!("{}_{}", src, s));
-                                        let id_dst = sanitize(&format!("{}_{}", dst_crate, t));
-                                        out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
-                                    }
-                                }
+                    }
+                    for (s, maps) in &src_details.external_depends_on {
+                        for (dst_crate, types) in maps {
+                            if !name_map.iter().any(|(c, _)| c == dst_crate) {
+                                continue;
                             }
-                        }
-                    } else {
-                        for maps in src_details.external_depends_on.values() {
-                            for dst in maps.keys() {
-                                if !edges.insert((src.clone(), dst.clone())) {
+                            let dst_detailed =
+                                show_all_crates || show_types_crates.contains(dst_crate);
+                            if src_detailed && dst_detailed {
+                                for t in types {
+                                    let id_src = sanitize(&format!("{}_{}", src, s));
+                                    let id_dst = sanitize(&format!("{}_{}", dst_crate, t));
+                                    out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
+                                }
+                            } else if src_detailed && !dst_detailed {
+                                let id_src = sanitize(&format!("{}_{}", src, s));
+                                let id_dst = sanitize(dst_crate);
+                                out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
+                            } else if !src_detailed && dst_detailed {
+                                let id_src = sanitize(src);
+                                for t in types {
+                                    let id_dst = sanitize(&format!("{}_{}", dst_crate, t));
+                                    out.push_str(&format!("    {} --> {}\n", id_src, id_dst));
+                                }
+                            } else {
+                                if !edges.insert((src.clone(), dst_crate.clone())) {
                                     continue;
                                 }
                                 let id_src = sanitize(src);
-                                let id_dst = sanitize(dst);
-                                let ec = efferent_couples(src_details, dst);
+                                let id_dst = sanitize(dst_crate);
+                                let ec = efferent_couples(src_details, dst_crate);
                                 if label_edges {
                                     out.push_str(&format!(
                                         "    {} --|{}|--> {}\n",
@@ -367,6 +382,7 @@ impl IntoOutput for cargo_anatomy::CrateDetail {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_results<T>(
     map: std::collections::HashMap<String, T>,
     name_map: &[(String, String)],
@@ -374,6 +390,7 @@ fn emit_results<T>(
     format: &str,
     label_edges: bool,
     show_types: bool,
+    show_types_crates: &std::collections::HashSet<String>,
     config: cargo_anatomy::Config,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -403,7 +420,13 @@ where
         "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
         "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(&root, name_map, label_edges)),
         "mermaid" => {
-            cargo_anatomy::loc_try!(mermaid::to_string(&root, name_map, label_edges, show_types))
+            cargo_anatomy::loc_try!(mermaid::to_string(
+                &root,
+                name_map,
+                label_edges,
+                show_types,
+                show_types_crates
+            ))
         }
         other => {
             eprintln!("unknown output format: {}", other);
@@ -456,6 +479,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("show-types")
                 .help("In mermaid output, nest types inside crate boxes")
                 .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("show-types-crate")
+                .long("show-types-crate")
+                .help("Crate to render with type-level detail (repeatable)")
+                .value_name("CRATE")
+                .action(ArgAction::Append),
         )
         .arg(
             Arg::new("output")
@@ -516,7 +546,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
-    let show_types = matches.get_flag("show-types");
+    let mut show_types = matches.get_flag("show-types");
+    let show_types_crates: std::collections::HashSet<String> = matches
+        .get_many::<String>("show-types-crate")
+        .into_iter()
+        .flatten()
+        .map(|s| s.to_string())
+        .collect();
+    if !show_types_crates.is_empty() {
+        show_types = true;
+    }
     let format = matches
         .get_one::<String>("output")
         .map(|s| s.as_str())
@@ -649,6 +688,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
             show_all,
             show_types,
+            &show_types_crates,
             config_used.clone()
         ));
     } else {
@@ -675,6 +715,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
             false,
             show_types,
+            &show_types_crates,
             config_used
         ));
     }
