@@ -1250,6 +1250,20 @@ impl<'a> DetailVisitor<'a> {
                         .entry(current.clone())
                         .or_default()
                         .insert(name);
+                } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
+                    let lookup = orig.unwrap_or(name.clone());
+                    if self
+                        .all_defined
+                        .get(&import_root)
+                        .is_some_and(|d| d.contains_key(&lookup))
+                    {
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(import_root)
+                            .or_default()
+                            .insert(lookup);
+                    }
                 }
             }
             Some(ref r) => {
