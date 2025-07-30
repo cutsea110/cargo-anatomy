@@ -2651,4 +2651,76 @@ mod tests {
         let cycles = dependency_cycles(&info);
         assert!(cycles.is_empty());
     }
+
+    #[test]
+    fn where_clause_dependency() {
+        let src_a = "pub trait Foo {}";
+        let src_b = r#"
+            use crate_a::Foo;
+            pub fn bar<T>(_: T)
+            where
+                T: Foo,
+            {}
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+    }
+
+    #[test]
+    fn macro_method_generic_dependency() {
+        let src_a = "pub struct A<T, E>(T, std::marker::PhantomData<E>);";
+        let src_b = r#"
+            use crate_a::A;
+
+            pub struct B;
+
+            macro_rules! impl_invoke {
+                ($that:expr, $req:expr) => {
+                    $that.invoke($req)
+                };
+            }
+
+            impl B {
+                fn invoke<T, E>(&self, _req: ())
+                -> ()
+                where
+                    A<T, E>: From<A<T, E>>,
+                {
+                    ()
+                }
+            }
+
+            pub fn get_foo(b: &B, req: ()) -> () {
+                impl_invoke!(b, req)
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+    }
 }
