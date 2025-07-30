@@ -531,6 +531,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .format_line_number(true)
         .init();
 
+    // When invoked as a cargo subcommand ("cargo anatomy"), cargo passes
+    // "anatomy" as the first argument to this binary. Strip that token so
+    // clap only sees the actual options provided by the user.
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if args.get(1).map(|a| a == "anatomy").unwrap_or(false) {
         args.remove(1);
