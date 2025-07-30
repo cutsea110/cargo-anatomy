@@ -530,6 +530,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .format_source_path(true)
         .format_line_number(true)
         .init();
+
+    let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if args.get(1).map(|a| a == "anatomy").unwrap_or(false) {
+        args.remove(1);
+    }
+
     let matches = Command::new("cargo-anatomy")
         .version(env!("CARGO_PKG_VERSION"))
         .disable_help_flag(true)
@@ -617,7 +623,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .visible_short_alias('?')
                 .help("Show this help message"),
         )
-        .get_matches();
+        .get_matches_from(args);
 
     if let Some(("init", sub_m)) = matches.subcommand() {
         let path = sub_m
