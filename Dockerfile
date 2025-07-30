@@ -3,7 +3,7 @@
 # Stage 1: build
 # Use the slim Debian image. Buildx will pull the correct variant for the
 # requested architecture so multi-arch images still work.
-FROM rust:1.87-slim AS builder
+FROM rust:1.88-slim AS builder
 
 WORKDIR /app
 
