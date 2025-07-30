@@ -683,6 +683,9 @@ pub fn analyze_workspace_details_with_thresholds(
     let mut workspace_crates: HashSet<String> = HashSet::new();
     for (name, _) in crates {
         workspace_crates.insert(name.clone());
+        if name.contains('-') {
+            workspace_crates.insert(name.replace('-', "_"));
+        }
     }
 
     let mut internal_refs: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
@@ -2066,6 +2069,76 @@ mod tests {
 
         assert_eq!(c_info.metrics.ce, 1);
         assert_eq!(a_info.metrics.ca, 1);
+    }
+
+    #[test]
+    fn enum_generic_dependency() {
+        let src = r#"
+            pub enum Response<T, E> {
+                Ok(T),
+                Err(E),
+            }
+
+            pub enum LambdaResponse {
+                System(Response<u8, String>),
+            }
+        "#;
+
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file])];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+
+        assert!(a_info
+            .internal_depends_on
+            .get("LambdaResponse")
+            .map(|v| v.contains(&"Response".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn cross_crate_enum_generic_dependency() {
+        let src_a = r#"
+            pub enum Response<T, E> {
+                Ok(T),
+                Err(E),
+            }
+        "#;
+        let src_b = r#"
+            use crate_a::Response;
+            pub enum LambdaResponse {
+                System(Response<u8, String>),
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+
+        assert!(b_info
+            .external_depends_on
+            .get("LambdaResponse")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Response".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("Response")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"LambdaResponse".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
