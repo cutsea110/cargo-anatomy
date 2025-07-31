@@ -917,6 +917,35 @@ fn external_crate_excluded_without_x() {
 }
 
 #[test]
+fn no_crate_root_in_outputs() {
+    let dir = create_workspace(&[
+        ("a", "use b::Foo; pub struct A;\n"),
+        ("b", "pub struct Foo;\n"),
+    ]);
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "json", "--show-types-crates", "a,b", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(!s.contains("__crate_root"));
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "mermaid", "--show-types-crates", "a,b", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(!s.contains("__crate_root"));
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "dot", "--show-types-crates", "a,b", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(!s.contains("__crate_root"));
+}
+
+#[test]
 fn custom_config_thresholds() {
     let dir = create_workspace(&[("pkg", "pub trait T {} pub struct S;\n")]);
     let config = r#"
