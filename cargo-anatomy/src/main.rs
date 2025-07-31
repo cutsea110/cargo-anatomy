@@ -333,9 +333,24 @@ mod mermaid {
                         e.d_prime,
                     ));
                     if let Some(details) = &entry.details {
-                        for class in &details.classes {
-                            let node_id = sanitize(&format!("{}_{}", crate_name, class.name));
-                            out.push_str(&format!("        {}[\"{}\"]\n", node_id, class.name));
+                        use std::collections::HashSet;
+                        let mut nodes: HashSet<&str> =
+                            details.classes.iter().map(|c| c.name.as_str()).collect();
+                        for key in details.internal_depends_on.keys() {
+                            nodes.insert(key);
+                        }
+                        for key in details.internal_depended_by.keys() {
+                            nodes.insert(key);
+                        }
+                        for key in details.external_depends_on.keys() {
+                            nodes.insert(key);
+                        }
+                        for key in details.external_depended_by.keys() {
+                            nodes.insert(key);
+                        }
+                        for name in nodes.into_iter().filter(|n| *n != "__crate_root") {
+                            let node_id = sanitize(&format!("{}_{}", crate_name, name));
+                            out.push_str(&format!("        {}[\"{}\"]\n", node_id, name));
                         }
                     }
                     out.push_str("    end\n");
