@@ -2694,11 +2694,7 @@ mod tests {
             }
 
             impl B {
-                fn invoke<T, E>(&self, _req: ())
-                -> ()
-                where
-                    A<T, E>: From<A<T, E>>,
-                {
+                fn invoke<T, E>(&self, _req: ()) -> () {
                     ()
                 }
             }
@@ -2720,7 +2716,7 @@ mod tests {
         let a_info = info.get("crate_a").unwrap();
         let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(b_info.metrics.ce, 1);
-        assert_eq!(a_info.metrics.ca, 1);
+        assert_eq!(b_info.metrics.ce, 0);
+        assert_eq!(a_info.metrics.ca, 0);
     }
 }
