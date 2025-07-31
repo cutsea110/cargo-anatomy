@@ -615,6 +615,71 @@ fn mermaid_show_types_single_crate() {
 }
 
 #[test]
+fn mermaid_show_types_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct A<T, E>(T, std::marker::PhantomData<E>);\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/src/lib.rs"),
+        r#"
+        use crate_a::A;
+
+        pub struct B(A<u8, u8>);
+
+        macro_rules! impl_invoke {
+            ($that:expr, $req:expr) => {
+                $that.invoke($req)
+            };
+        }
+
+        impl B {
+            fn invoke(&self, _req: ()) -> () { () }
+        }
+
+        fn get_foo(b: &B, req: ()) -> () {
+            impl_invoke!(b, req)
+        }
+        "#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args([
+        "-a",
+        "-o",
+        "mermaid",
+        "--show-types-crates",
+        "crate_b",
+        "-x",
+    ])
+    .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph crate_b"));
+    assert!(s.contains("crate_b_get_foo"));
+}
+
+#[test]
 fn dot_show_types() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
