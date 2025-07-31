@@ -1565,6 +1565,35 @@ mod tests {
     }
 
     #[test]
+    fn same_name_internal_external_dependency() {
+        let src_a = "pub struct Foo;";
+        let src_b = "pub struct Foo; pub struct Bar { ext: crate_a::Foo, int: Foo }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let b_info = info.get("crate_b").unwrap();
+
+        assert!(b_info
+            .internal_depends_on
+            .get("Bar")
+            .map(|v| v.contains(&"Foo".to_string()))
+            .unwrap_or(false));
+        assert!(b_info
+            .external_depends_on
+            .get("Bar")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Foo".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn method_call_dependency() {
         let src_a = r#"
             pub struct Dao;
