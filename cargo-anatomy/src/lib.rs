@@ -2685,7 +2685,7 @@ mod tests {
         let src_b = r#"
             use crate_a::A;
 
-            pub struct B;
+            pub struct B(A<u8, u8>);
 
             macro_rules! impl_invoke {
                 ($that:expr, $req:expr) => {
@@ -2694,7 +2694,7 @@ mod tests {
             }
 
             impl B {
-                fn invoke<T, E>(&self, _req: ()) -> () {
+                fn invoke(&self, _req: ()) -> () {
                     ()
                 }
             }
@@ -2716,7 +2716,7 @@ mod tests {
         let a_info = info.get("crate_a").unwrap();
         let b_info = info.get("crate_b").unwrap();
 
-        assert_eq!(b_info.metrics.ce, 0);
-        assert_eq!(a_info.metrics.ca, 0);
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
     }
 }
