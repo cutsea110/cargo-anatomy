@@ -806,20 +806,42 @@ pub fn analyze_workspace_details_with_thresholds(
 
         let to_vec_map = |map: &HashMap<String, HashSet<String>>| {
             map.iter()
-                .map(|(k, v)| (k.clone(), v.iter().cloned().collect::<Vec<_>>()))
+                .filter(|(k, _)| *k != DetailVisitor::ROOT_ITEM)
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        v.iter()
+                            .filter(|t| *t != DetailVisitor::ROOT_ITEM)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .filter(|(_, v): &(_, Vec<String>)| !v.is_empty())
                 .collect::<HashMap<_, _>>()
         };
 
         let to_vec_nested = |map: &HashMap<String, HashMap<String, HashSet<String>>>| {
             map.iter()
+                .filter(|(k, _)| *k != DetailVisitor::ROOT_ITEM)
                 .map(|(k, v)| {
                     (
                         k.clone(),
                         v.iter()
-                            .map(|(k2, set)| (k2.clone(), set.iter().cloned().collect::<Vec<_>>()))
+                            .filter(|(k2, _)| *k2 != DetailVisitor::ROOT_ITEM)
+                            .map(|(k2, set)| {
+                                (
+                                    k2.clone(),
+                                    set.iter()
+                                        .filter(|t| *t != DetailVisitor::ROOT_ITEM)
+                                        .cloned()
+                                        .collect::<Vec<_>>(),
+                                )
+                            })
+                            .filter(|(_, v)| !v.is_empty())
                             .collect::<HashMap<_, _>>(),
                     )
                 })
+                .filter(|(_, v)| !v.is_empty())
                 .collect::<HashMap<_, _>>()
         };
 
