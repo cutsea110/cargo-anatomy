@@ -2699,7 +2699,7 @@ mod tests {
                 }
             }
 
-            pub fn get_foo(b: &B, req: ()) -> () {
+            fn get_foo(b: &B, req: ()) -> () {
                 impl_invoke!(b, req)
             }
         "#;
