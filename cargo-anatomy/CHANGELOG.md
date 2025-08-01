@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2025-07-31
+### Added
+- Type-level mermaid and Graphviz DOT output with crate filters.
+- Function nodes included in Mermaid graphs.
+- CLI thresholds configurable via `.anatomy.toml`.
+### Changed
+- Argument parsing switched to clap.
+- Removed crate root nodes from graphs.
+- Default configuration uses workspace `.anatomy.toml`.
+### Fixed
+- Correct handling when invoked as a cargo subcommand.
+
 ## [0.5.2] - 2025-07-23
 ### Fixed
 - Improved workspace dependency detection for glob and macro imports.
