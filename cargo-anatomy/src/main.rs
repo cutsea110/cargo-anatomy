@@ -595,6 +595,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .action(ArgAction::Append),
         )
         .arg(
+            Arg::new("show-types-crates-all")
+                .long("show-types-crates-all")
+                .help("Render types for all workspace crates (experimental)")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
             Arg::new("output")
                 .short('o')
                 .long("output")
@@ -653,6 +659,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
+    let show_types_crates_all = matches.get_flag("show-types-crates-all");
     let raw_show_types_crates: std::collections::HashSet<String> = matches
         .get_many::<String>("show-types-crates")
         .into_iter()
@@ -751,10 +758,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         crates.push((crate_name, files));
     }
 
+    // Using a HashSet prevents duplicates when `--show-types-crates` and
+    // `--show-types-crates-all` are combined.
     let mut show_types_crates = std::collections::HashSet::new();
     for name in &raw_show_types_crates {
         if let Some((crate_name, _)) = name_map.iter().find(|(c, p)| c == name || p == name) {
             show_types_crates.insert(crate_name.clone());
+        }
+    }
+    if show_types_crates_all {
+        for (name, kind) in &kind_map {
+            if *kind == CrateKind::Workspace {
+                show_types_crates.insert(name.clone());
+            }
         }
     }
     let show_types = !show_types_crates.is_empty();
