@@ -758,6 +758,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         crates.push((crate_name, files));
     }
 
+    // Using a HashSet prevents duplicates when `--show-types-crates` and
+    // `--show-types-crates-all` are combined.
     let mut show_types_crates = std::collections::HashSet::new();
     for name in &raw_show_types_crates {
         if let Some((crate_name, _)) = name_map.iter().find(|(c, p)| c == name || p == name) {
