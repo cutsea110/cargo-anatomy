@@ -726,6 +726,44 @@ fn dot_show_types() {
 }
 
 #[test]
+fn dot_show_types_all_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("crate_b/src")).unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/Cargo.toml"),
+        "[package]\nname = \"crate_a\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_b/Cargo.toml"),
+        "[package]\nname = \"crate_b\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("crate_a/src/lib.rs"),
+        "pub struct X1(pub crate_b::X2);\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("crate_b/src/lib.rs"), "pub struct X2;\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crate_a\", \"crate_b\"]\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.args(["-a", "-o", "dot", "--show-types-crates-all", "-x"])
+        .current_dir(dir.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("subgraph cluster_crate_a"));
+    assert!(s.contains("subgraph cluster_crate_b"));
+    assert!(s.contains("\"crate_a_X1\""));
+    assert!(s.contains("\"crate_b_X2\""));
+}
+
+#[test]
 fn dot_show_types_single_crate() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("crate_a/src")).unwrap();
