@@ -47,6 +47,9 @@ Each metric is also mapped to a qualitative label. These labels are assigned usi
 # Run on the current workspace
 cargo anatomy
 
+# Analyze a specific manifest
+cargo anatomy --manifest-path path/to/Cargo.toml
+
 # Show detailed class and dependency information
 cargo anatomy -a
 
@@ -81,6 +84,36 @@ template configuration and pass `-c <FILE>` to load it. See the [Configuration](
 
 The command outputs metrics for every member crate in compact JSON format by default. Use `-x` to also analyze external dependencies. Analyzing external crates can significantly increase processing time. When the `-a` flag is used, each crate also includes a `details.kind` field indicating whether it is part of the workspace or an external crate. Pipe to `jq` if you want it pretty printed. Use `-o yaml` for YAML output, `-o dot` for Graphviz or `-o mermaid` for Mermaid diagrams. When using `-o dot`, you can write the graph to a file and convert it with Graphviz: `cargo anatomy -o dot > graph.dot && dot -Tpng graph.dot -o graph.png`. Dependency arrows are labeled with the efferent couple count from the source crate when the `-a` flag is used. Graphviz and Mermaid diagrams can include individual type nodes when `--show-types-crates=<CRATE1,CRATE2>` is specified. Mermaid will only render the first 500 edges by default, so increase `maxEdges` in your [Mermaid configuration](https://mermaid.js.org/config/schema-docs/config.html#maxedges) if your graph is larger. Both Graphviz and Mermaid outputs omit dependency edges unless `-a` is supplied, so combining these formats with `-a` is recommended when you want to visualize the graph.
 Use `--show-types-crates-all` to expand all workspace crates with type details (experimental).
+
+### Analyzing macro-generated code
+
+`cargo-anatomy` only sees the code that exists in your source files. Dependencies
+introduced by macros are not visible unless you expand them first. You can use
+[`cargo expand`](https://github.com/dtolnay/cargo-expand) to generate expanded
+sources and analyze those instead.
+
+```bash
+# Install cargo-expand if you don't have it
+cargo install cargo-expand
+
+# Produce expanded sources for a crate
+cargo expand -p my_crate --lib > /tmp/my_crate/src/lib.rs
+cp my_crate/Cargo.toml /tmp/my_crate/
+# If the crate inherits dependencies from the workspace, also copy the workspace root
+# Cargo.toml or replace `workspace = true` entries with explicit versions.
+
+# Run cargo-anatomy on the expanded copy
+cargo anatomy --manifest-path /tmp/my_crate/Cargo.toml
+```
+
+Repeat these steps for any crates that rely heavily on macros to ensure
+macro-generated types are included in the analysis.
+
+If the copied manifest contains dependencies like `anyhow = { workspace = true }`,
+ensure the workspace root `Cargo.toml` is copied alongside or replace those
+entries with concrete versions; otherwise `cargo metadata` will report
+"failed to find a workspace root".
+
 
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 
