@@ -204,6 +204,27 @@ fn manifest_path_option() {
 }
 
 #[test]
+fn manifest_path_requires_workspace_root_for_workspace_deps() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("pkg/src")).unwrap();
+    std::fs::write(
+        dir.path().join("pkg/Cargo.toml"),
+        "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n[dependencies]\nanyhow = { workspace = true }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct S;\n").unwrap();
+
+    let outside = tempfile::tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("--manifest-path")
+        .arg(dir.path().join("pkg/Cargo.toml"))
+        .current_dir(outside.path());
+    let assert = cmd.assert().failure();
+    let err = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(err.contains("workspace root"));
+}
+
+#[test]
 fn include_external_crate() {
     let dir = tempfile::tempdir().unwrap();
     // external crate outside of workspace

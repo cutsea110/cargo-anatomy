@@ -99,6 +99,8 @@ cargo install cargo-expand
 # Produce expanded sources for a crate
 cargo expand -p my_crate --lib > /tmp/my_crate/src/lib.rs
 cp my_crate/Cargo.toml /tmp/my_crate/
+# If the crate inherits dependencies from the workspace, also copy the workspace root
+# Cargo.toml or replace `workspace = true` entries with explicit versions.
 
 # Run cargo-anatomy on the expanded copy
 cargo anatomy --manifest-path /tmp/my_crate/Cargo.toml
@@ -106,6 +108,12 @@ cargo anatomy --manifest-path /tmp/my_crate/Cargo.toml
 
 Repeat these steps for any crates that rely heavily on macros to ensure
 macro-generated types are included in the analysis.
+
+If the copied manifest contains dependencies like `anyhow = { workspace = true }`,
+ensure the workspace root `Cargo.toml` is copied alongside or replace those
+entries with concrete versions; otherwise `cargo metadata` will report
+"failed to find a workspace root".
+
 
 See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main/docs/output-schema.md) for a description of the output schema. Example output (`| jq`):
 

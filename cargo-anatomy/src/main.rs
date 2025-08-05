@@ -699,7 +699,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !include_external {
         cmd.no_deps();
     }
-    let metadata = cargo_anatomy::loc_try!(cmd.exec());
+    let metadata = match cmd.exec() {
+        Ok(m) => m,
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("failed to find a workspace root") {
+                return Err(cargo_anatomy::error_with_location(format!(
+                    "{msg}\nhelp: crates that use `workspace = true` dependencies must be analyzed within their workspace or have those dependencies rewritten with explicit versions"
+                )));
+            }
+            return Err(cargo_anatomy::error_with_location(e));
+        }
+    };
 
     let config_path: Option<PathBuf> = matches
         .get_one::<String>("config")
