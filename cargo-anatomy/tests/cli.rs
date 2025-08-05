@@ -191,6 +191,19 @@ fn custom_lib_path() {
 }
 
 #[test]
+fn manifest_path_option() {
+    let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
+    let outside = tempfile::tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    cmd.arg("--manifest-path")
+        .arg(dir.path().join("Cargo.toml"))
+        .current_dir(outside.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let s = String::from_utf8_lossy(&out);
+    assert!(s.contains("pkg"));
+}
+
+#[test]
 fn include_external_crate() {
     let dir = tempfile::tempdir().unwrap();
     // external crate outside of workspace

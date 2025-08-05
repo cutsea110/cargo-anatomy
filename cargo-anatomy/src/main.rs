@@ -573,6 +573,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
         )
         .arg(
+            Arg::new("manifest-path")
+                .long("manifest-path")
+                .value_name("PATH")
+                .help("Path to Cargo.toml to analyze"),
+        )
+        .arg(
             Arg::new("all")
                 .short('a')
                 .long("all")
@@ -659,6 +665,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
+    let manifest_path = matches
+        .get_one::<String>("manifest-path")
+        .map(PathBuf::from);
     let show_types_crates_all = matches.get_flag("show-types-crates-all");
     let raw_show_types_crates: std::collections::HashSet<String> = matches
         .get_many::<String>("show-types-crates")
@@ -684,6 +693,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse::<f64>().ok());
 
     let mut cmd = cargo_metadata::MetadataCommand::new();
+    if let Some(path) = manifest_path {
+        cmd.manifest_path(path);
+    }
     if !include_external {
         cmd.no_deps();
     }

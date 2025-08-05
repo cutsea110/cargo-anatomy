@@ -47,6 +47,9 @@ Each metric is also mapped to a qualitative label. These labels are assigned usi
 # Run on the current workspace
 cargo anatomy
 
+# Analyze a specific manifest
+cargo anatomy --manifest-path path/to/Cargo.toml
+
 # Show detailed class and dependency information
 cargo anatomy -a
 
