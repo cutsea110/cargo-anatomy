@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0-alpha.0] - 2025-08-05
+### Changed
+- Pre-release version bump.
+
 ## [0.6.0] - 2025-07-31
 ### Added
 - Type-level mermaid and Graphviz DOT output with crate filters.
