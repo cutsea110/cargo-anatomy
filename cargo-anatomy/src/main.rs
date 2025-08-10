@@ -1,4 +1,8 @@
-//! CLI entry point for the cargo-anatomy tool.
+//! Command line interface for the `cargo-anatomy` tool.
+//!
+//! The binary wraps the analysis routines provided by the library and exposes
+//! them as a `cargo` subcommand. It can inspect an entire workspace and emit
+//! human readable or JSON reports describing structural metrics.
 use cargo_anatomy::{analyze_workspace_details_with_thresholds, parse_package, CrateKind};
 use clap::{Arg, ArgAction, Command};
 use log::info;
@@ -51,6 +55,9 @@ const CONFIG_TEMPLATE: &str = "# Configuration for cargo-anatomy\n\n\
   # Minimum normalized distance considered bad\n\
   bad_min = 0.6\n";
 
+/// Write a default configuration file to the given path.
+///
+/// If the file already exists it will not be overwritten.
 fn init_config<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>> {
     let p = path.as_ref();
     if p.exists() {
@@ -62,6 +69,10 @@ fn init_config<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+/// Determine the crate target name for a package.
+///
+/// Prefers the library target, falling back to the first available target or
+/// the package name if necessary.
 fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
     for target in &pkg.targets {
         if target
@@ -78,49 +89,73 @@ fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
         .unwrap_or_else(|| pkg.name.replace('-', "_"))
 }
 
+/// Additional details emitted when `--show-types` is enabled.
 #[derive(Clone, Serialize)]
 struct CrateDetails {
+    /// Classification of the crate as workspace or external.
     kind: cargo_anatomy::CrateKind,
+    /// Types defined within the crate.
     classes: Vec<cargo_anatomy::ClassInfo>,
+    /// Internal dependency map.
     internal_depends_on: std::collections::HashMap<String, Vec<String>>,
+    /// Inverse of `internal_depends_on`.
     internal_depended_by: std::collections::HashMap<String, Vec<String>>,
+    /// External dependencies keyed by crate and type.
     external_depends_on:
         std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+    /// External dependents keyed by crate and type.
     external_depended_by:
         std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
 }
 
+/// Top-level entry for each crate in the output.
 #[derive(Clone, Serialize)]
 struct OutputEntry {
+    /// Crate name as used by `cargo`.
     crate_name: String,
+    /// Raw metrics.
     metrics: cargo_anatomy::Metrics,
+    /// Evaluation of the metrics.
     evaluation: cargo_anatomy::Evaluation,
+    /// Optional detailed information.
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<CrateDetails>,
 }
 
+/// Non-fatal issues encountered during analysis.
 #[derive(Serialize)]
 struct Warnings {
+    /// Cycles detected in the crate dependency graph.
     dependency_cycles: Vec<Vec<String>>,
 }
 
+/// Information about the running tool included in the output.
 #[derive(Serialize, Clone)]
 struct ToolInfo {
+    /// Version of the `cargo-anatomy` binary.
     version: &'static str,
+    /// Target triple the binary was built for.
     target: String,
 }
 
+/// Metadata embedded at the root of the output.
 #[derive(Serialize, Clone)]
 struct Meta {
+    /// Details about the `cargo-anatomy` tool.
     #[serde(rename = "cargo-anatomy")]
     cargo_anatomy: ToolInfo,
+    /// Configuration used for the analysis.
     config: cargo_anatomy::Config,
 }
 
+/// Root object emitted for any serialised output format.
 #[derive(Serialize)]
 struct OutputRoot<T: Serialize> {
+    /// Metadata about the run.
     meta: Meta,
+    /// Per-crate analysis results.
     crates: Vec<T>,
+    /// Additional warnings.
     warnings: Warnings,
 }
 
@@ -440,13 +475,17 @@ mod mermaid {
     }
 }
 
+/// Helper trait for converting analysis data into a serialisable `OutputEntry`.
 trait IntoOutput: Clone + Serialize {
     fn into_output(self, package_name: String) -> OutputEntry;
 }
 
+/// Pair of metrics and their evaluation used when only summary information is emitted.
 #[derive(Clone, Serialize)]
 struct MetricsWithEval {
+    /// Raw metrics for a crate.
     metrics: cargo_anatomy::Metrics,
+    /// Evaluation of those metrics.
     evaluation: cargo_anatomy::Evaluation,
 }
 
@@ -479,6 +518,11 @@ impl IntoOutput for cargo_anatomy::CrateDetail {
     }
 }
 
+/// Serialise analysis results to the requested output format.
+///
+/// The `map` is keyed by crate name and contains either metrics or detailed
+/// information. `name_map` maps crate names to package names, and `format`
+/// selects the encoder (`json`, `yaml`, `dot`, or `mermaid`).
 #[allow(clippy::too_many_arguments)]
 fn emit_results<T>(
     map: std::collections::HashMap<String, T>,
@@ -540,6 +584,7 @@ where
     Ok(())
 }
 
+/// Entry point for the `cargo-anatomy` CLI.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_default_env()
         .format_source_path(true)
