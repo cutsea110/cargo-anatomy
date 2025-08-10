@@ -1,4 +1,11 @@
 //! Utilities for analyzing Rust crates and computing package metrics.
+//!
+//! The library parses Rust source files and builds a dependency graph of the
+//! types that appear within a crate. From this graph a number of classic
+//! software metrics are derived, such as efferent/afferent coupling and
+//! relational cohesion. These building blocks are used by the accompanying
+//! `cargo-anatomy` binary, but the functions are generic enough to be consumed
+//! by other tools as well.
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -10,8 +17,18 @@ use walkdir::WalkDir;
 
 /// Wrap an error with file and line information.
 ///
-/// This helper is mainly used by the `loc_try!` macro so that any propagated
+/// This helper is mainly used by the [`loc_try!`] macro so that any propagated
 /// error retains its originating call site, which simplifies debugging.
+///
+/// # Examples
+///
+/// ```
+/// use cargo_anatomy::error_with_location;
+///
+/// fn might_fail() -> Result<(), Box<dyn std::error::Error>> {
+///     Err(error_with_location("boom"))
+/// }
+/// ```
 #[track_caller]
 pub fn error_with_location<E>(err: E) -> Box<dyn std::error::Error>
 where
@@ -27,6 +44,10 @@ where
 }
 
 /// Try expression and attach location info on error.
+///
+/// This macro behaves similarly to the `?` operator but ensures that any error
+/// returned is first wrapped with [`error_with_location`]. It is primarily
+/// intended for internal use.
 #[macro_export]
 macro_rules! loc_try {
     ($expr:expr) => {
@@ -54,119 +75,172 @@ fn has_test_attr(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-/// Kind of a Rust item defined in a crate.
+/// Represents the kind of item defined within a crate.
+///
+/// The variants correspond to common Rust constructs that can participate in
+/// dependency relationships.
 #[derive(Debug, Serialize, Clone)]
 pub enum ClassKind {
+    /// A `struct` definition.
     Struct,
+    /// An `enum` definition.
     Enum,
+    /// A `trait` definition.
     Trait,
+    /// A `type` alias.
     TypeAlias,
+    /// A `macro_rules!` or other macro definition.
     Macro,
 }
-/// Information about a type defined in a crate.
+
+/// Metadata about a type defined in a crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct ClassInfo {
+    /// Name of the item as it appears in source.
     pub name: String,
+    /// Kind of the item.
     pub kind: ClassKind,
 }
 
-/// Whether a crate is part of the workspace or an external dependency.
+/// Specifies whether a crate belongs to the current workspace or is an
+/// external dependency.
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
 pub enum CrateKind {
+    /// The crate lives in the workspace being analysed.
     Workspace,
+    /// The crate is an external dependency.
     External,
 }
 
-/// Metrics describing the coupling and cohesion of a crate.
+/// Quantitative metrics describing the coupling and cohesion of a crate.
+///
+/// Values are derived from the relationships between types and follow the
+/// definitions popularised by Robert C. Martin. Each field is documented with
+/// the formula used to compute it.
 #[derive(Debug, Serialize, Clone)]
 pub struct Metrics {
+    /// Number of internal type relationships.
     pub r: usize,
+    /// Total number of type definitions.
     pub n: usize,
+    /// Relational cohesion calculated as `(r + 1) / n`.
     pub h: f64,
+    /// Afferent coupling – external types depending on this crate.
     pub ca: usize,
+    /// Efferent coupling – this crate's types depending on other workspace crates.
     pub ce: usize,
+    /// Abstraction ratio of traits to total types.
     pub a: f64,
+    /// Instability ratio `ce / (ce + ca)`.
     pub i: f64,
+    /// Distance from the main sequence.
     pub d: f64,
+    /// Normalised distance from the main sequence.
     pub d_prime: f64,
 }
 
-/// Qualitative labels for abstraction.
+/// Qualitative evaluation of a crate's level of abstraction.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AbstractionEval {
+    /// More than the configured fraction of items are traits.
     Abstract,
+    /// A mix of concrete and abstract items.
     Mixed,
+    /// Dominated by concrete types.
     Concrete,
 }
 
-/// Qualitative labels for cohesion.
+/// Qualitative evaluation of relational cohesion.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum CohesionEval {
+    /// Cohesion exceeds the configured high threshold.
     High,
+    /// Cohesion does not exceed the high threshold.
     Low,
 }
 
-/// Qualitative labels for stability.
+/// Qualitative evaluation of stability based on dependency ratios.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum StabilityEval {
+    /// Few outgoing dependencies, considered stable.
     Stable,
+    /// Balance of incoming and outgoing dependencies.
     Moderate,
+    /// Many outgoing dependencies, considered unstable.
     Unstable,
 }
 
-/// Qualitative labels for normalized distance.
+/// Qualitative evaluation of the normalised distance from the main sequence.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum DistanceEval {
+    /// Falls within the good range near the main sequence.
     Good,
+    /// Neither particularly good nor problematic.
     Balanced,
+    /// Far from the main sequence on the stable side.
     Painful,
+    /// Far from the main sequence on the unstable side.
     Useless,
 }
 
-/// Labels evaluating package metrics.
+/// Human readable evaluation for a set of metrics.
 #[derive(Debug, Serialize, Clone)]
 pub struct Evaluation {
+    /// Result of evaluating abstraction.
     pub a: AbstractionEval,
+    /// Result of evaluating cohesion.
     pub h: CohesionEval,
+    /// Result of evaluating instability.
     pub i: StabilityEval,
+    /// Result of evaluating distance from the main sequence.
     pub d_prime: DistanceEval,
 }
 
-/// Metrics accompanied by evaluation labels used for output.
+/// Metrics accompanied by their qualitative evaluation, used for output.
 #[derive(Debug, Serialize, Clone)]
 pub struct MetricsResult {
+    /// Raw quantitative metrics.
     pub metrics: Metrics,
+    /// Human readable evaluation of those metrics.
     pub evaluation: Evaluation,
 }
 
-/// Threshold values used when evaluating metrics.
+/// Groups together threshold values used when evaluating metrics.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct EvaluationThresholds {
+    /// Thresholds governing abstraction classification.
     #[serde(default)]
     pub abstraction: AbstractionThresholds,
+    /// Thresholds for relational cohesion.
     #[serde(default)]
     pub cohesion: CohesionThresholds,
+    /// Thresholds for stability.
     #[serde(default)]
     pub instability: InstabilityThresholds,
+    /// Thresholds for distance from the main sequence.
     #[serde(default)]
     pub distance: DistanceThresholds,
 }
 
-/// Root structure for configuration files.
+/// Top-level structure for configuration files.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
+    /// Threshold configuration for metric evaluation.
     #[serde(default)]
     pub evaluation: EvaluationThresholds,
 }
 
+/// Thresholds used when categorising a crate as abstract or concrete.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AbstractionThresholds {
+    /// Minimum ratio of traits considered abstract.
     #[serde(default = "default_abstract_min")]
     pub abstract_min: f64,
+    /// Maximum ratio of traits considered concrete.
     #[serde(default = "default_concrete_max")]
     pub concrete_max: f64,
 }
@@ -188,8 +262,10 @@ impl Default for AbstractionThresholds {
     }
 }
 
+/// Thresholds used to evaluate relational cohesion.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CohesionThresholds {
+    /// Values greater than this are considered highly cohesive.
     #[serde(default = "default_high_gt")]
     pub high_gt: f64,
 }
@@ -206,10 +282,13 @@ impl Default for CohesionThresholds {
     }
 }
 
+/// Thresholds used to categorise crate stability.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InstabilityThresholds {
+    /// Minimum ratio considered unstable.
     #[serde(default = "default_unstable_min")]
     pub unstable_min: f64,
+    /// Maximum ratio considered stable.
     #[serde(default = "default_stable_max")]
     pub stable_max: f64,
 }
@@ -231,10 +310,13 @@ impl Default for InstabilityThresholds {
     }
 }
 
+/// Thresholds for evaluating distance from the main sequence.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DistanceThresholds {
+    /// Maximum normalised distance considered good.
     #[serde(default = "default_good_max")]
     pub good_max: f64,
+    /// Minimum normalised distance considered bad.
     #[serde(default = "default_bad_min")]
     pub bad_min: f64,
 }
@@ -256,14 +338,16 @@ impl Default for DistanceThresholds {
     }
 }
 
-/// Assign qualitative labels to numerical metrics.
+/// Evaluate a set of metrics using the library's default thresholds.
 ///
-/// Thresholds loosely follow the metrics described in Robert C. Martin's *Agile Software Development*.
+/// This is a convenience wrapper around [`evaluate_metrics_with`].
+/// Thresholds loosely follow the metrics described in Robert C. Martin's
+/// *Agile Software Development*.
 pub fn evaluate_metrics(m: &Metrics) -> Evaluation {
     evaluate_metrics_with(m, &EvaluationThresholds::default())
 }
 
-/// Assign qualitative labels to numerical metrics using custom thresholds.
+/// Evaluate metrics using custom thresholds.
 pub fn evaluate_metrics_with(m: &Metrics, t: &EvaluationThresholds) -> Evaluation {
     let a_label = if m.a >= t.abstraction.abstract_min {
         AbstractionEval::Abstract
@@ -310,16 +394,28 @@ pub fn evaluate_metrics_with(m: &Metrics, t: &EvaluationThresholds) -> Evaluatio
 /// Detailed analysis results for a single crate.
 #[derive(Debug, Serialize, Clone)]
 pub struct CrateDetail {
+    /// Whether the crate is part of the workspace or external.
     pub kind: CrateKind,
+    /// Raw metrics computed for the crate.
     pub metrics: Metrics,
+    /// Qualitative evaluation of the metrics.
     pub evaluation: Evaluation,
+    /// All types defined within the crate.
     pub classes: Vec<ClassInfo>,
-    pub internal_depends_on: HashMap<String, Vec<String>>, // type -> types it depends on
-    pub internal_depended_by: HashMap<String, Vec<String>>, // type -> types depending on it
-    pub external_depends_on: HashMap<String, HashMap<String, Vec<String>>>, // type -> crate -> types
-    pub external_depended_by: HashMap<String, HashMap<String, Vec<String>>>, // type -> crate -> types
+    /// Mapping of type names to the types they depend on within the crate.
+    pub internal_depends_on: HashMap<String, Vec<String>>,
+    /// Inverse mapping of [`internal_depends_on`].
+    pub internal_depended_by: HashMap<String, Vec<String>>,
+    /// External dependencies keyed by crate and type.
+    pub external_depends_on: HashMap<String, HashMap<String, Vec<String>>>,
+    /// External dependents keyed by crate and type.
+    pub external_depended_by: HashMap<String, HashMap<String, Vec<String>>>,
 }
-/// Collect definitions from parsed files and count traits.
+
+/// Traverse parsed syntax trees and collect all type definitions, counting traits.
+///
+/// Returns a mapping from type name to [`ClassKind`] together with the number of
+/// trait definitions encountered. Items marked as tests are ignored.
 pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     fn visit_items(
         items: &[syn::Item],
@@ -367,7 +463,11 @@ pub fn collect_defined(files: &[File]) -> (HashMap<String, ClassKind>, usize) {
     }
     (defined, abstract_count)
 }
-/// Map method names to their return types for each impl or trait.
+/// Map method names to their return types for each `impl` block or trait.
+///
+/// The returned map uses `(impl_name, method_name)` as the key where
+/// `impl_name` is the type or trait that the method belongs to and the value
+/// is the return type. Test code is ignored.
 pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
     fn ret_ty(output: &syn::ReturnType, self_ty: &str) -> Option<String> {
@@ -477,6 +577,9 @@ pub fn collect_methods(files: &[File]) -> HashMap<(String, String), String> {
     map
 }
 /// Collect trait inheritance information for each trait.
+///
+/// Returns a map from trait name to the list of traits it declares as
+/// supertraits. Test code is ignored.
 pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     let mut map = HashMap::new();
     for file in files {
@@ -546,10 +649,11 @@ fn parse_dir(dir: &std::path::Path) -> Result<Vec<File>, Box<dyn std::error::Err
 
 /// Parse all Rust source files belonging to the given package.
 ///
-/// Every library or binary target's source directory is scanned (or `src/` when no targets declare a path) and any `.rs`
-/// files found are parsed into `syn::File` structures. Files located under a
-/// `tests` directory are skipped since Cargo treats integration tests as
-/// separate crates.
+/// Every library or binary target's source directory is scanned (or `src/` when
+/// no targets declare a path) and any `.rs` files found are parsed into
+/// [`syn::File`] structures. Files located under a `tests` directory are skipped
+/// since Cargo treats integration tests as separate crates.
+/// Returns the parsed files.
 pub fn parse_package(
     package: &cargo_metadata::Package,
 ) -> Result<Vec<File>, Box<dyn std::error::Error>> {
@@ -562,8 +666,9 @@ pub fn parse_package(
 }
 /// Parse a package's source files and compute metrics.
 ///
-/// The provided `workspace_types` should contain class names from all crates
-/// in the workspace so that internal/external references are classified correctly.
+/// The provided `workspace_types` should contain class names from all crates in
+/// the workspace so that internal and external references are classified
+/// correctly. Returns the computed [`Metrics`] for the package.
 pub fn analyze_package(
     package: &cargo_metadata::Package,
     workspace_types: &HashSet<String>,
@@ -573,7 +678,8 @@ pub fn analyze_package(
 }
 /// Analyze parsed files to produce package metrics.
 ///
-/// `workspace_types` should contain all type names defined in the workspace so references can be counted as internal or external.
+/// `workspace_types` should contain all type names defined in the workspace so
+/// references can be counted as internal or external.
 pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metrics {
     debug!("collecting definitions from {} files", files.len());
     let (defined, abstract_count) = collect_defined(files);
@@ -633,13 +739,15 @@ pub fn analyze_files(files: &[File], workspace_types: &HashSet<String>) -> Metri
 
 /// Analyse multiple crates together so cross-crate dependencies can be counted.
 ///
-/// Each entry is a crate name paired with its parsed source files.
+/// Each tuple contains the crate name and its parsed source files.
+/// Only the [`Metrics`] for each crate are returned.
 pub fn analyze_workspace(crates: &[(String, Vec<File>)]) -> HashMap<String, Metrics> {
     analyze_workspace_with_thresholds(crates, &EvaluationThresholds::default())
 }
 
-/// Analyse multiple crates together so cross-crate dependencies can be counted
-/// using custom evaluation thresholds.
+/// Analyse multiple crates together using custom evaluation thresholds.
+///
+/// Returns only the [`Metrics`] for each crate.
 pub fn analyze_workspace_with_thresholds(
     crates: &[(String, Vec<File>)],
     t: &EvaluationThresholds,
@@ -649,14 +757,16 @@ pub fn analyze_workspace_with_thresholds(
         .map(|(k, v)| (k, v.metrics))
         .collect()
 }
-/// Return metrics and dependency graphs for multiple crates.
+
+/// Produce full [`CrateDetail`] information for multiple crates.
 ///
-/// This function performs a deeper analysis than `analyze_workspace` by tracking type-level dependencies between crates.
+/// This performs a deeper analysis than [`analyze_workspace`] by tracking
+/// type-level dependencies between crates.
 pub fn analyze_workspace_details(crates: &[(String, Vec<File>)]) -> HashMap<String, CrateDetail> {
     analyze_workspace_details_with_thresholds(crates, &EvaluationThresholds::default())
 }
 
-/// Return metrics and dependency graphs for multiple crates using custom thresholds.
+/// Produce full [`CrateDetail`] information for multiple crates using custom thresholds.
 pub fn analyze_workspace_details_with_thresholds(
     crates: &[(String, Vec<File>)],
     t: &EvaluationThresholds,
@@ -877,9 +987,11 @@ pub fn analyze_workspace_details_with_thresholds(
     result
 }
 
-/// Determine dependency cycles between crates based on analysis details.
+/// Detect cycles in the crate dependency graph.
 ///
-/// Internally uses Tarjan's strongly connected components algorithm.
+/// The returned vector contains one entry per cycle; each entry is a list of
+/// crate names in the order they appear in the cycle. Internally uses
+/// Tarjan's strongly connected components algorithm.
 pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<String>> {
     // Build adjacency list of crate -> crates it depends on
     let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
