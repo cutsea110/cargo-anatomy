@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2025-09-10
+### Maintenance
+- Routine maintenance release.
+
 ## [0.6.2] - 2025-08-14
 ### Maintenance
 - Routine maintenance release.
