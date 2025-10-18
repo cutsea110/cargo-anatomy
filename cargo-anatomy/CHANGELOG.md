@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.5] - 2025-10-18
+### Fixed
+- Corrected external dependency counting when metrics are accessed via re-exports.
+
+### Maintenance
+- Routine maintenance release.
+
 ## [0.6.4] - 2025-10-09
 ### Maintenance
 - Routine maintenance release.
