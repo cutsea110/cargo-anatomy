@@ -606,6 +606,91 @@ pub fn collect_trait_bounds(files: &[File]) -> HashMap<String, Vec<String>> {
     }
     map
 }
+
+/// Collect re-exported items from workspace crates.
+///
+/// Returns a map from the re-exported name to the originating crate and the
+/// original identifier.
+pub fn collect_reexports(
+    files: &[File],
+    workspace: &HashSet<String>,
+) -> HashMap<String, (String, String)> {
+    struct ReexportVisitor<'a> {
+        workspace: &'a HashSet<String>,
+        map: HashMap<String, (String, String)>,
+    }
+
+    fn handle_use_tree(
+        tree: &syn::UseTree,
+        first: Option<String>,
+        workspace: &HashSet<String>,
+        map: &mut HashMap<String, (String, String)>,
+    ) {
+        match tree {
+            syn::UseTree::Path(p) => {
+                let root = first.clone().unwrap_or_else(|| p.ident.to_string());
+                handle_use_tree(&p.tree, Some(root), workspace, map);
+            }
+            syn::UseTree::Name(n) => {
+                if let Some(r) = &first {
+                    if workspace.contains(r) {
+                        map.insert(n.ident.to_string(), (r.clone(), n.ident.to_string()));
+                    }
+                }
+            }
+            syn::UseTree::Rename(rn) => {
+                let root = first
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| rn.ident.to_string());
+                if workspace.contains(&root) {
+                    map.insert(rn.rename.to_string(), (root, rn.ident.to_string()));
+                }
+            }
+            syn::UseTree::Group(g) => {
+                for t in &g.items {
+                    handle_use_tree(t, first.clone(), workspace, map);
+                }
+            }
+            syn::UseTree::Glob(_) => {}
+        }
+    }
+
+    impl<'ast> Visit<'ast> for ReexportVisitor<'_> {
+        fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
+            if has_test_attr(&i.attrs) {
+                return;
+            }
+            syn::visit::visit_item_mod(self, i);
+        }
+
+        fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
+            if has_test_attr(&i.attrs) {
+                return;
+            }
+            if matches!(i.vis, syn::Visibility::Inherited) {
+                syn::visit::visit_item_use(self, i);
+                return;
+            }
+            handle_use_tree(&i.tree, None, self.workspace, &mut self.map);
+            syn::visit::visit_item_use(self, i);
+        }
+    }
+
+    let mut visitor = ReexportVisitor {
+        workspace,
+        map: HashMap::new(),
+    };
+
+    for file in files {
+        if has_test_attr(&file.attrs) {
+            continue;
+        }
+        visitor.visit_file(file);
+    }
+
+    visitor.map
+}
 /// Parse all Rust source files belonging to the given package.
 fn package_source_dirs(package: &cargo_metadata::Package) -> HashSet<std::path::PathBuf> {
     let manifest_dir = package.manifest_path.parent().unwrap();
@@ -773,8 +858,11 @@ pub fn analyze_workspace_details_with_thresholds(
 ) -> HashMap<String, CrateDetail> {
     debug!("analysing {} crates", crates.len());
 
+    let workspace_crates: HashSet<String> = crates.iter().map(|(name, _)| name.clone()).collect();
+
     let mut crate_defined = HashMap::new();
     let mut crate_abstract = HashMap::new();
+    let mut crate_reexports: HashMap<String, HashMap<String, (String, String)>> = HashMap::new();
     let mut method_map: HashMap<(String, String), String> = HashMap::new();
     let mut trait_bounds: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -782,17 +870,14 @@ pub fn analyze_workspace_details_with_thresholds(
         let (defined, abstract_count) = collect_defined(files);
         let methods = collect_methods(files);
         let bounds = collect_trait_bounds(files);
+        let reexports = collect_reexports(files, &workspace_crates);
         method_map.extend(methods);
         for (k, v) in bounds {
             trait_bounds.insert(k, v);
         }
         crate_defined.insert(name.clone(), defined);
         crate_abstract.insert(name.clone(), abstract_count);
-    }
-
-    let mut workspace_crates: HashSet<String> = HashSet::new();
-    for (name, _) in crates {
-        workspace_crates.insert(name.clone());
+        crate_reexports.insert(name.clone(), reexports);
     }
 
     let mut internal_refs: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
@@ -807,6 +892,7 @@ pub fn analyze_workspace_details_with_thresholds(
             crate_name: name,
             workspace_crates: &workspace_crates,
             all_defined: &crate_defined,
+            reexports: &crate_reexports,
             imports: HashMap::new(),
             internal: HashMap::new(),
             external: HashMap::new(),
@@ -1113,6 +1199,7 @@ struct DetailVisitor<'a> {
     crate_name: &'a str,
     workspace_crates: &'a HashSet<String>,
     all_defined: &'a HashMap<String, HashMap<String, ClassKind>>,
+    reexports: &'a HashMap<String, HashMap<String, (String, String)>>,
     /// Map of imported identifiers to their originating crate and original name.
     ///
     /// The key is the local identifier introduced by a `use` statement. The
@@ -1384,6 +1471,20 @@ impl<'a> DetailVisitor<'a> {
                         .entry(current.clone())
                         .or_default()
                         .insert(name);
+                } else if let Some((target_crate, target_name)) = self
+                    .reexports
+                    .get(self.crate_name)
+                    .and_then(|m| m.get(&name))
+                    .cloned()
+                {
+                    if self.workspace_crates.contains(&target_crate) {
+                        self.external
+                            .entry(current.clone())
+                            .or_default()
+                            .entry(target_crate)
+                            .or_default()
+                            .insert(target_name);
+                    }
                 }
             }
             Some(ref r) => {
@@ -1404,6 +1505,17 @@ impl<'a> DetailVisitor<'a> {
                             .entry(r.clone())
                             .or_default()
                             .insert(lookup.to_string());
+                    } else if let Some((target_crate, target_name)) =
+                        self.reexports.get(r).and_then(|m| m.get(lookup)).cloned()
+                    {
+                        if self.workspace_crates.contains(&target_crate) {
+                            self.external
+                                .entry(current.clone())
+                                .or_default()
+                                .entry(target_crate)
+                                .or_default()
+                                .insert(target_name);
+                        }
                     }
                 }
             }
@@ -1426,6 +1538,20 @@ impl<'a> DetailVisitor<'a> {
                             .entry(import_root.clone())
                             .or_default()
                             .insert(lookup);
+                    } else if let Some((target_crate, target_name)) = self
+                        .reexports
+                        .get(&import_root)
+                        .and_then(|m| m.get(&lookup))
+                        .cloned()
+                    {
+                        if self.workspace_crates.contains(&target_crate) {
+                            self.external
+                                .entry(current.clone())
+                                .or_default()
+                                .entry(target_crate)
+                                .or_default()
+                                .insert(target_name);
+                        }
                     }
                 }
             }
@@ -1641,6 +1767,46 @@ mod tests {
             .get("Foo")
             .and_then(|m| m.get("crate_b"))
             .map(|v| v.contains(&"Bar".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn reexported_dependency_counts_as_external() {
+        let src_infra = r#"
+            pub mod repo {
+                pub struct HashDB;
+            }
+        "#;
+        let src_sample = r#"
+            pub mod repository {
+                pub use infra::repo::HashDB;
+            }
+        "#;
+        let src_app = r#"
+            use sample::repository::HashDB;
+
+            pub struct App(HashDB);
+        "#;
+
+        let file_infra: syn::File = syn::parse_str(src_infra).unwrap();
+        let file_sample: syn::File = syn::parse_str(src_sample).unwrap();
+        let file_app: syn::File = syn::parse_str(src_app).unwrap();
+
+        let crates = vec![
+            ("infra".to_string(), vec![file_infra.clone()]),
+            ("sample".to_string(), vec![file_sample.clone()]),
+            ("app".to_string(), vec![file_app.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let app_info = info.get("app").unwrap();
+
+        assert_eq!(app_info.metrics.ce, 1);
+        assert!(app_info
+            .external_depends_on
+            .get("App")
+            .and_then(|m| m.get("infra"))
+            .map(|v| v.contains(&"HashDB".to_string()))
             .unwrap_or(false));
     }
 
@@ -2710,6 +2876,7 @@ mod tests {
             crate_name: "my_crate",
             workspace_crates: &ws,
             all_defined: &std::collections::HashMap::new(),
+            reexports: &std::collections::HashMap::new(),
             imports: std::collections::HashMap::new(),
             internal: std::collections::HashMap::new(),
             external: std::collections::HashMap::new(),
@@ -2737,6 +2904,7 @@ mod tests {
             crate_name: "my_crate",
             workspace_crates: &ws,
             all_defined: &HashMap::new(),
+            reexports: &HashMap::new(),
             imports: HashMap::new(),
             internal: HashMap::new(),
             external: HashMap::new(),
