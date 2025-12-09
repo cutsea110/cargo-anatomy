@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 
 fn create_workspace(crates: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
@@ -26,7 +26,7 @@ fn create_workspace(crates: &[(&str, &str)]) -> tempfile::TempDir {
 
 #[test]
 fn prints_version() {
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("-V");
     let output = cmd.assert().get_output().stdout.clone();
     assert!(!output.is_empty());
@@ -34,7 +34,7 @@ fn prints_version() {
 
 #[test]
 fn prints_help() {
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("-?");
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -60,7 +60,7 @@ fn uses_package_name() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("-a").current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -84,7 +84,7 @@ fn outputs_yaml() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "yaml"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -110,7 +110,7 @@ fn outputs_dot() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -135,7 +135,7 @@ fn outputs_mermaid() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -160,7 +160,7 @@ fn mermaid_uses_html_newlines() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -183,7 +183,7 @@ fn custom_lib_path() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("-a").current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -194,7 +194,7 @@ fn custom_lib_path() {
 fn manifest_path_option() {
     let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
     let outside = tempfile::tempdir().unwrap();
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("--manifest-path")
         .arg(dir.path().join("Cargo.toml"))
         .current_dir(outside.path());
@@ -215,7 +215,7 @@ fn manifest_path_requires_workspace_root_for_workspace_deps() {
     std::fs::write(dir.path().join("pkg/src/lib.rs"), "pub struct S;\n").unwrap();
 
     let outside = tempfile::tempdir().unwrap();
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("--manifest-path")
         .arg(dir.path().join("pkg/Cargo.toml"))
         .current_dir(outside.path());
@@ -259,7 +259,7 @@ fn include_external_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-x"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -323,7 +323,7 @@ fn dot_show_types_external_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot", "--show-types-crates", "app,dep", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -370,7 +370,7 @@ fn mermaid_show_types_external_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -406,7 +406,7 @@ fn includes_evaluation_labels() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -449,7 +449,7 @@ fn dot_edge_couples() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -483,7 +483,7 @@ fn dot_edge_unique_counts() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -513,7 +513,7 @@ fn dot_without_a_has_no_edge_labels() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-o", "dot"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -551,7 +551,7 @@ fn mermaid_edge_couples() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "mermaid"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -585,7 +585,7 @@ fn mermaid_show_types() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -630,7 +630,7 @@ fn mermaid_show_types_single_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -697,7 +697,7 @@ fn mermaid_show_types_functions() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -740,7 +740,7 @@ fn dot_show_types() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -786,7 +786,7 @@ fn dot_show_types_all_flag() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot", "--show-types-crates-all", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -824,7 +824,7 @@ fn dot_show_types_all_and_single() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args([
         "-a",
         "-o",
@@ -868,7 +868,7 @@ fn dot_show_types_single_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot", "--show-types-crates", "crate_a", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -907,7 +907,7 @@ fn json_show_types() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "--show-types-crates", "crate_a,crate_b", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -951,7 +951,7 @@ fn json_show_types_single_crate() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "--show-types-crates", "crate_a", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -991,7 +991,7 @@ fn mermaid_without_a_has_no_edge_labels() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-o", "mermaid"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
@@ -1022,7 +1022,7 @@ fn external_crate_excluded_without_x() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.current_dir(ws.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -1039,21 +1039,21 @@ fn no_crate_root_in_outputs() {
         ("b", "pub struct Foo;\n"),
     ]);
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "json", "--show-types-crates", "a,b", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
     assert!(!s.contains("__crate_root"));
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "mermaid", "--show-types-crates", "a,b", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let s = String::from_utf8_lossy(&out);
     assert!(!s.contains("__crate_root"));
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-a", "-o", "dot", "--show-types-crates", "a,b", "-x"])
         .current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
@@ -1072,7 +1072,7 @@ fn custom_config_thresholds() {
 "#;
     std::fs::write(dir.path().join("anatomy.toml"), config).unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["-c", "anatomy.toml"]).current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -1092,7 +1092,7 @@ fn dotfile_used_as_default_config() {
 "#;
     std::fs::write(dir.path().join(".anatomy.toml"), config).unwrap();
 
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.current_dir(dir.path());
     let out = cmd.assert().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -1102,7 +1102,7 @@ fn dotfile_used_as_default_config() {
 #[test]
 fn init_creates_config() {
     let dir = tempfile::tempdir().unwrap();
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.arg("init").current_dir(dir.path());
     cmd.assert().success();
     let path = dir.path().join(".anatomy.toml");
@@ -1115,7 +1115,7 @@ fn init_creates_config() {
 #[test]
 fn fails_on_h_lt() {
     let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["--h-lt", "1.1"]).current_dir(dir.path());
     cmd.assert().failure();
 }
@@ -1123,7 +1123,7 @@ fn fails_on_h_lt() {
 #[test]
 fn fails_on_d_prime_ge() {
     let dir = create_workspace(&[("pkg", "pub struct S;\n")]);
-    let mut cmd = Command::cargo_bin("cargo-anatomy").unwrap();
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
     cmd.args(["--d-prime-ge", "0.9"]).current_dir(dir.path());
     cmd.assert().failure();
 }
