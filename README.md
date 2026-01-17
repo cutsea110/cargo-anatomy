@@ -120,7 +120,7 @@ See [docs/output-schema.md](https://github.com/cutsea110/cargo-anatomy/blob/main
 ```json
 {
   "meta": {
-  "cargo-anatomy": { "version": "0.6.7", "target": "linux/x86_64" },
+  "cargo-anatomy": { "version": "0.6.8", "target": "linux/x86_64" },
     "config": {
       "evaluation": {
         "abstraction": { "abstract_min": 0.7, "concrete_max": 0.3 },
@@ -258,4 +258,3 @@ jobs:
       - name: Run cargo-anatomy
         run: cargo anatomy -c .anatomy.toml --h-lt 1.1 --d-prime-ge 0.9
 ```
-
