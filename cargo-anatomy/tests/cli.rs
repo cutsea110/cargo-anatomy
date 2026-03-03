@@ -1033,6 +1033,187 @@ fn external_crate_excluded_without_x() {
 }
 
 #[test]
+fn external_scope_filters_to_named_package_only() {
+    let leaf = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(leaf.path().join("src")).unwrap();
+    std::fs::write(
+        leaf.path().join("Cargo.toml"),
+        "[package]\nname = \"myorg-leaf\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(leaf.path().join("src/lib.rs"), "pub struct Leaf;\n").unwrap();
+
+    let core = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(core.path().join("src")).unwrap();
+    std::fs::write(
+        core.path().join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"myorg-core\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-leaf = {{ path = \"{}\" }}\n",
+            leaf.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        core.path().join("src/lib.rs"),
+        "pub struct Core(pub myorg_leaf::Leaf);\n",
+    )
+    .unwrap();
+
+    let other = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(other.path().join("src")).unwrap();
+    std::fs::write(
+        other.path().join("Cargo.toml"),
+        "[package]\nname = \"third-party\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(other.path().join("src/lib.rs"), "pub struct Other;\n").unwrap();
+
+    let ws = create_workspace(&[(
+        "app",
+        "pub struct App(pub myorg_core::Core, pub third_party::Other);\n",
+    )]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-core = {{ path = \"{}\" }}\nthird-party = {{ path = \"{}\" }}\n",
+            core.path().display(),
+            other.path().display()
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["-x", "--external-scope", "pkg:myorg-core"])
+        .current_dir(ws.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let names: std::collections::HashSet<String> = v["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["crate_name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains("app"));
+    assert!(names.contains("myorg-core"));
+    assert!(!names.contains("myorg-leaf"));
+    assert!(!names.contains("third-party"));
+}
+
+#[test]
+fn external_scope_pkg_prefix_filters_namespace_crates() {
+    let leaf = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(leaf.path().join("src")).unwrap();
+    std::fs::write(
+        leaf.path().join("Cargo.toml"),
+        "[package]\nname = \"myorg-leaf\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(leaf.path().join("src/lib.rs"), "pub struct Leaf;\n").unwrap();
+
+    let core = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(core.path().join("src")).unwrap();
+    std::fs::write(
+        core.path().join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"myorg-core\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-leaf = {{ path = \"{}\" }}\n",
+            leaf.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        core.path().join("src/lib.rs"),
+        "pub struct Core(pub myorg_leaf::Leaf);\n",
+    )
+    .unwrap();
+
+    let other = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(other.path().join("src")).unwrap();
+    std::fs::write(
+        other.path().join("Cargo.toml"),
+        "[package]\nname = \"third-party\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(other.path().join("src/lib.rs"), "pub struct Other;\n").unwrap();
+
+    let ws = create_workspace(&[(
+        "app",
+        "pub struct App(pub myorg_core::Core, pub third_party::Other);\n",
+    )]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-core = {{ path = \"{}\" }}\nthird-party = {{ path = \"{}\" }}\n",
+            core.path().display(),
+            other.path().display()
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["-x", "--external-scope", "pkg-prefix:myorg-"])
+        .current_dir(ws.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let names: std::collections::HashSet<String> = v["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["crate_name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains("app"));
+    assert!(names.contains("myorg-core"));
+    assert!(names.contains("myorg-leaf"));
+    assert!(!names.contains("third-party"));
+}
+
+#[test]
+fn external_scope_dep_matches_dependency_alias() {
+    let dep = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dep.path().join("src")).unwrap();
+    std::fs::write(
+        dep.path().join("Cargo.toml"),
+        "[package]\nname = \"actual-dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dep.path().join("src/lib.rs"), "pub struct Dep;\n").unwrap();
+
+    let ws = create_workspace(&[("app", "pub struct App(pub dep_alias::Dep);\n")]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep_alias = {{ package = \"actual-dep\", path = \"{}\" }}\n",
+            dep.path().display()
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["-x", "--external-scope", "dep:dep_alias"])
+        .current_dir(ws.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let names: std::collections::HashSet<String> = v["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["crate_name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains("app"));
+    assert!(names.contains("actual-dep"));
+}
+
+#[test]
+fn external_scope_requires_x() {
+    let dir = create_workspace(&[("app", "pub struct App;\n")]);
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["--external-scope", "pkg:foo"])
+        .current_dir(dir.path());
+    let assert = cmd.assert().failure();
+    let err = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(err.contains("--external-scope requires -x/--include-external"));
+}
+
+#[test]
 fn no_crate_root_in_outputs() {
     let dir = create_workspace(&[
         ("a", "use b::Foo; pub struct A;\n"),

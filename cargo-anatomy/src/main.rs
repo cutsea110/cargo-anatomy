@@ -31,6 +31,16 @@ const EVALUATION_HELP: &[&str] = &[
     "  D' - <=0.4 good; >=0.6 useless if A+I-1 >= 0 else painful; otherwise balanced",
 ];
 
+const EXTERNAL_SCOPE_HELP: &[&str] = &[
+    "External scope selectors:",
+    "  pkg:<NAME>          package name exact match (Cargo.toml package.name)",
+    "  pkg-prefix:<PREFIX> package name prefix match",
+    "  crate:<NAME>        Rust crate name exact match (code-side name)",
+    "  crate-prefix:<PFX>  Rust crate name prefix match",
+    "  dep:<KEY>           dependency key match ([dependencies] entry key)",
+    "  Notes: requires -x/--include-external, repeatable and comma-separated",
+];
+
 const CONFIG_TEMPLATE: &str = "# Configuration for cargo-anatomy\n\n\
 [evaluation]\n\
   [evaluation.abstraction]\n\
@@ -87,6 +97,55 @@ fn crate_target_name(pkg: &cargo_metadata::Package) -> String {
         .first()
         .map(|t| t.name.clone())
         .unwrap_or_else(|| pkg.name.replace('-', "_"))
+}
+
+#[derive(Clone, Debug)]
+enum ExternalScope {
+    Package(String),
+    PackagePrefix(String),
+    Crate(String),
+    CratePrefix(String),
+    Dependency(String),
+}
+
+impl ExternalScope {
+    fn parse(raw: &str) -> Result<Self, String> {
+        let (kind, value) = raw
+            .split_once(':')
+            .ok_or_else(|| format!("invalid scope `{raw}`: expected KIND:VALUE"))?;
+        if value.is_empty() {
+            return Err(format!("invalid scope `{raw}`: VALUE must not be empty"));
+        }
+        match kind {
+            "pkg" => Ok(Self::Package(value.to_string())),
+            "pkg-prefix" => Ok(Self::PackagePrefix(value.to_string())),
+            "crate" => Ok(Self::Crate(value.to_string())),
+            "crate-prefix" => Ok(Self::CratePrefix(value.to_string())),
+            "dep" => Ok(Self::Dependency(value.to_string())),
+            _ => Err(format!(
+                "invalid scope `{raw}`: KIND must be one of pkg, pkg-prefix, crate, crate-prefix, dep"
+            )),
+        }
+    }
+
+    fn matches_package(&self, package_name: &str, crate_name: &str) -> bool {
+        match self {
+            Self::Package(name) => package_name == name,
+            Self::PackagePrefix(prefix) => package_name.starts_with(prefix),
+            Self::Crate(name) => crate_name == name,
+            Self::CratePrefix(prefix) => crate_name.starts_with(prefix),
+            Self::Dependency(_) => false,
+        }
+    }
+
+    fn matches_dependency(&self, dep_name: &str) -> bool {
+        match self {
+            Self::Dependency(name) => dep_name == name,
+            Self::Package(_) | Self::PackagePrefix(_) | Self::Crate(_) | Self::CratePrefix(_) => {
+                false
+            }
+        }
+    }
 }
 
 /// Additional details emitted when `--show-types` is enabled.
@@ -603,7 +662,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .version(env!("CARGO_PKG_VERSION"))
         .disable_help_flag(true)
         .after_help(format!(
-            "{}\n\n{}",
+            "{}\n\n{}\n\n{}",
+            EXTERNAL_SCOPE_HELP.join("\n"),
             METRICS_HELP.join("\n"),
             EVALUATION_HELP.join("\n")
         ))
@@ -634,8 +694,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arg::new("include-external")
                 .short('x')
                 .long("include-external")
-                .help("Include external dependencies in analysis (slower)")
+                .help("Include external dependencies in analysis. Use --external-scope to restrict targets")
                 .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("external-scope")
+                .long("external-scope")
+                .help("Filter -x external crates by scope selectors (see below)")
+                .value_name("SCOPE")
+                .value_delimiter(',')
+                .action(ArgAction::Append),
         )
         .arg(
             Arg::new("show-types-crates")
@@ -708,8 +776,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return init_config(path);
     }
 
-    let show_all = matches.get_flag("all");
     let include_external = matches.get_flag("include-external");
+    let raw_external_scopes: Vec<String> = matches
+        .get_many::<String>("external-scope")
+        .into_iter()
+        .flatten()
+        .map(|s| s.to_string())
+        .collect();
+    let external_scopes = raw_external_scopes
+        .iter()
+        .map(|s| ExternalScope::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(cargo_anatomy::error_with_location)?;
+    if !include_external && !external_scopes.is_empty() {
+        return Err(cargo_anatomy::error_with_location(
+            "--external-scope requires -x/--include-external",
+        ));
+    }
+    let show_all = matches.get_flag("all");
     let manifest_path = matches
         .get_one::<String>("manifest-path")
         .map(PathBuf::from);
@@ -800,15 +884,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut kind_map = HashMap::new();
     let mut seen = HashSet::new();
 
-    let packages: Vec<&cargo_metadata::Package> = if include_external {
-        metadata.packages.iter().collect()
-    } else {
+    let workspace_ids: HashSet<cargo_metadata::PackageId> =
+        metadata.workspace_members.iter().cloned().collect();
+    let selected_external_ids: HashSet<cargo_metadata::PackageId> = if !include_external {
+        HashSet::new()
+    } else if external_scopes.is_empty() {
         metadata
-            .workspace_members
+            .packages
             .iter()
-            .map(|id| &metadata[id])
+            .filter(|pkg| !workspace_ids.contains(&pkg.id))
+            .map(|pkg| pkg.id.clone())
             .collect()
+    } else {
+        let resolve = metadata.resolve.as_ref().ok_or_else(|| {
+            cargo_anatomy::error_with_location("failed to resolve dependency graph")
+        })?;
+        let package_by_id: HashMap<cargo_metadata::PackageId, &cargo_metadata::Package> = metadata
+            .packages
+            .iter()
+            .map(|pkg| (pkg.id.clone(), pkg))
+            .collect();
+        let crate_name_by_id: HashMap<cargo_metadata::PackageId, String> = metadata
+            .packages
+            .iter()
+            .map(|pkg| (pkg.id.clone(), crate_target_name(pkg)))
+            .collect();
+        let adjacency: HashMap<
+            cargo_metadata::PackageId,
+            Vec<(String, cargo_metadata::PackageId)>,
+        > = resolve
+            .nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.clone(),
+                    node.deps
+                        .iter()
+                        .map(|dep| (dep.name.clone(), dep.pkg.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        let mut roots = HashSet::new();
+        for (id, pkg) in &package_by_id {
+            if workspace_ids.contains(id) {
+                continue;
+            }
+            let crate_name = crate_name_by_id
+                .get(id)
+                .map(String::as_str)
+                .unwrap_or(pkg.name.as_str());
+            if external_scopes
+                .iter()
+                .any(|scope| scope.matches_package(pkg.name.as_str(), crate_name))
+            {
+                roots.insert(id.clone());
+            }
+        }
+        for deps in adjacency.values() {
+            for (dep_name, dep_id) in deps {
+                if !workspace_ids.contains(dep_id)
+                    && external_scopes
+                        .iter()
+                        .any(|scope| scope.matches_dependency(dep_name))
+                {
+                    roots.insert(dep_id.clone());
+                }
+            }
+        }
+        if roots.is_empty() {
+            return Err(cargo_anatomy::error_with_location(
+                "no external crates matched --external-scope",
+            ));
+        }
+
+        roots
     };
+    let packages: Vec<&cargo_metadata::Package> = metadata
+        .packages
+        .iter()
+        .filter(|pkg| workspace_ids.contains(&pkg.id) || selected_external_ids.contains(&pkg.id))
+        .collect();
 
     for package in packages {
         let crate_name = crate_target_name(package);
