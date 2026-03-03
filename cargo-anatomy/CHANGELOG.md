@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-03-03
+### Added
+- Added support for the `--external-scope` option.
+
 ## [0.6.8] - 2025-11-24
 ### Maintenance
 - Routine maintenance release.
