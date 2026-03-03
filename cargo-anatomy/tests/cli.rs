@@ -1208,6 +1208,73 @@ fn external_scope_dep_matches_dependency_alias() {
 }
 
 #[test]
+fn external_scope_comma_separated_packages_include_transitive_chain_members() {
+    let c = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(c.path().join("src")).unwrap();
+    std::fs::write(
+        c.path().join("Cargo.toml"),
+        "[package]\nname = \"external-c\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(c.path().join("src/lib.rs"), "pub struct C;\n").unwrap();
+
+    let b = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(b.path().join("src")).unwrap();
+    std::fs::write(
+        b.path().join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"external-b\"\nversion = \"0.1.0\"\n[dependencies]\nexternal-c = {{ path = \"{}\" }}\n",
+            toml_path(c.path())
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        b.path().join("src/lib.rs"),
+        "pub struct B(pub external_c::C);\n",
+    )
+    .unwrap();
+
+    let other = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(other.path().join("src")).unwrap();
+    std::fs::write(
+        other.path().join("Cargo.toml"),
+        "[package]\nname = \"other-dep\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(other.path().join("src/lib.rs"), "pub struct Other;\n").unwrap();
+
+    let ws = create_workspace(&[(
+        "app",
+        "pub struct App(pub external_b::B, pub other_dep::Other);\n",
+    )]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nexternal-b = {{ path = \"{}\" }}\nother-dep = {{ path = \"{}\" }}\n",
+            toml_path(b.path()),
+            toml_path(other.path())
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["-x", "--external-scope", "pkg:external-b,pkg:external-c"])
+        .current_dir(ws.path());
+    let out = cmd.assert().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let names: std::collections::HashSet<String> = v["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["crate_name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains("app"));
+    assert!(names.contains("external-b"));
+    assert!(names.contains("external-c"));
+    assert!(!names.contains("other-dep"));
+}
+
+#[test]
 fn external_scope_dep_ignores_non_workspace_dependency_edges() {
     let leaf = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(leaf.path().join("src")).unwrap();
