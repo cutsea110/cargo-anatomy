@@ -1,4 +1,9 @@
 use assert_cmd::cargo::cargo_bin_cmd;
+use std::path::Path;
+
+fn toml_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
 
 fn create_workspace(crates: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
@@ -243,7 +248,7 @@ fn include_external_crate() {
         dir.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
-            external.path().display()
+            toml_path(external.path())
         ),
     )
     .unwrap();
@@ -307,7 +312,7 @@ fn dot_show_types_external_crate() {
         dir.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
-            external.path().display()
+            toml_path(external.path())
         ),
     )
     .unwrap();
@@ -354,7 +359,7 @@ fn mermaid_show_types_external_crate() {
         dir.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
-            external.path().display()
+            toml_path(external.path())
         ),
     )
     .unwrap();
@@ -1017,7 +1022,7 @@ fn external_crate_excluded_without_x() {
         ws.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep = {{ path = \"{}\" }}\n",
-            ext.path().display()
+            toml_path(ext.path())
         ),
     )
     .unwrap();
@@ -1049,7 +1054,7 @@ fn external_scope_filters_to_named_package_only() {
         core.path().join("Cargo.toml"),
         format!(
             "[package]\nname = \"myorg-core\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-leaf = {{ path = \"{}\" }}\n",
-            leaf.path().display()
+            toml_path(leaf.path())
         ),
     )
     .unwrap();
@@ -1076,8 +1081,8 @@ fn external_scope_filters_to_named_package_only() {
         ws.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-core = {{ path = \"{}\" }}\nthird-party = {{ path = \"{}\" }}\n",
-            core.path().display(),
-            other.path().display()
+            toml_path(core.path()),
+            toml_path(other.path())
         ),
     )
     .unwrap();
@@ -1116,7 +1121,7 @@ fn external_scope_pkg_prefix_filters_namespace_crates() {
         core.path().join("Cargo.toml"),
         format!(
             "[package]\nname = \"myorg-core\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-leaf = {{ path = \"{}\" }}\n",
-            leaf.path().display()
+            toml_path(leaf.path())
         ),
     )
     .unwrap();
@@ -1143,8 +1148,8 @@ fn external_scope_pkg_prefix_filters_namespace_crates() {
         ws.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmyorg-core = {{ path = \"{}\" }}\nthird-party = {{ path = \"{}\" }}\n",
-            core.path().display(),
-            other.path().display()
+            toml_path(core.path()),
+            toml_path(other.path())
         ),
     )
     .unwrap();
@@ -1182,7 +1187,7 @@ fn external_scope_dep_matches_dependency_alias() {
         ws.path().join("app/Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ndep_alias = {{ package = \"actual-dep\", path = \"{}\" }}\n",
-            dep.path().display()
+            toml_path(dep.path())
         ),
     )
     .unwrap();
@@ -1200,6 +1205,51 @@ fn external_scope_dep_matches_dependency_alias() {
         .collect();
     assert!(names.contains("app"));
     assert!(names.contains("actual-dep"));
+}
+
+#[test]
+fn external_scope_dep_ignores_non_workspace_dependency_edges() {
+    let leaf = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(leaf.path().join("src")).unwrap();
+    std::fs::write(
+        leaf.path().join("Cargo.toml"),
+        "[package]\nname = \"external-leaf\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(leaf.path().join("src/lib.rs"), "pub struct Leaf;\n").unwrap();
+
+    let core = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(core.path().join("src")).unwrap();
+    std::fs::write(
+        core.path().join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"external-core\"\nversion = \"0.1.0\"\n[dependencies]\nleaf_alias = {{ package = \"external-leaf\", path = \"{}\" }}\n",
+            toml_path(leaf.path())
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        core.path().join("src/lib.rs"),
+        "pub struct Core(pub leaf_alias::Leaf);\n",
+    )
+    .unwrap();
+
+    let ws = create_workspace(&[("app", "pub struct App;\n")]);
+    std::fs::write(
+        ws.path().join("app/Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nexternal-core = {{ path = \"{}\" }}\n",
+            toml_path(core.path())
+        ),
+    )
+    .unwrap();
+
+    let mut cmd = cargo_bin_cmd!("cargo-anatomy");
+    cmd.args(["-x", "--external-scope", "dep:leaf_alias"])
+        .current_dir(ws.path());
+    let assert = cmd.assert().failure();
+    let err = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(err.contains("no external crates matched --external-scope"));
 }
 
 #[test]

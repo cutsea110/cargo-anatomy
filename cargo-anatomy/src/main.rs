@@ -909,23 +909,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|pkg| (pkg.id.clone(), crate_target_name(pkg)))
             .collect();
-        let adjacency: HashMap<
-            cargo_metadata::PackageId,
-            Vec<(String, cargo_metadata::PackageId)>,
-        > = resolve
-            .nodes
-            .iter()
-            .map(|node| {
-                (
-                    node.id.clone(),
-                    node.deps
-                        .iter()
-                        .map(|dep| (dep.name.clone(), dep.pkg.clone()))
-                        .collect(),
-                )
-            })
-            .collect();
-
         let mut roots = HashSet::new();
         for (id, pkg) in &package_by_id {
             if workspace_ids.contains(id) {
@@ -942,14 +925,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 roots.insert(id.clone());
             }
         }
-        for deps in adjacency.values() {
-            for (dep_name, dep_id) in deps {
-                if !workspace_ids.contains(dep_id)
+        for node in &resolve.nodes {
+            if !workspace_ids.contains(&node.id) {
+                continue;
+            }
+            for dep in &node.deps {
+                if !workspace_ids.contains(&dep.pkg)
                     && external_scopes
                         .iter()
-                        .any(|scope| scope.matches_dependency(dep_name))
+                        .any(|scope| scope.matches_dependency(dep.name.as_str()))
                 {
-                    roots.insert(dep_id.clone());
+                    roots.insert(dep.pkg.clone());
                 }
             }
         }
