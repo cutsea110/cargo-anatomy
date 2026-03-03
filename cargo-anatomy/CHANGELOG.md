@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-03-03
+## [0.7.0] - 2026-03-03
 ### Added
 - Added support for the `--external-scope` option.
 
