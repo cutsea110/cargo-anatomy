@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-04-12
+### Maintenance
+- Clarified `--external-scope` usage in the documentation, including comma-separated selectors.
+- Added CLI coverage for comma-separated `--external-scope` package chains.
+
 ## [0.7.0] - 2026-03-03
 ### Added
 - Added support for the `--external-scope` option.
