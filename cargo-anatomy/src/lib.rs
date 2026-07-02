@@ -1477,7 +1477,9 @@ impl<'a> DetailVisitor<'a> {
                     .and_then(|m| m.get(&name))
                     .cloned()
                 {
-                    if self.workspace_crates.contains(&target_crate) {
+                    if self.workspace_crates.contains(&target_crate)
+                        && target_crate != self.crate_name
+                    {
                         self.external
                             .entry(current.clone())
                             .or_default()
@@ -1494,10 +1496,11 @@ impl<'a> DetailVisitor<'a> {
                     } else {
                         &name
                     };
-                    if self
-                        .all_defined
-                        .get(r)
-                        .is_some_and(|d| d.contains_key(lookup))
+                    if r != self.crate_name
+                        && self
+                            .all_defined
+                            .get(r)
+                            .is_some_and(|d| d.contains_key(lookup))
                     {
                         self.external
                             .entry(current.clone())
@@ -1508,7 +1511,9 @@ impl<'a> DetailVisitor<'a> {
                     } else if let Some((target_crate, target_name)) =
                         self.reexports.get(r).and_then(|m| m.get(lookup)).cloned()
                     {
-                        if self.workspace_crates.contains(&target_crate) {
+                        if self.workspace_crates.contains(&target_crate)
+                            && target_crate != self.crate_name
+                        {
                             self.external
                                 .entry(current.clone())
                                 .or_default()
@@ -1527,10 +1532,11 @@ impl<'a> DetailVisitor<'a> {
                         .insert(name);
                 } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
                     let lookup = orig.unwrap_or(name.clone());
-                    if self
-                        .all_defined
-                        .get(&import_root)
-                        .is_some_and(|d| d.contains_key(&lookup))
+                    if import_root != self.crate_name
+                        && self
+                            .all_defined
+                            .get(&import_root)
+                            .is_some_and(|d| d.contains_key(&lookup))
                     {
                         self.external
                             .entry(current.clone())
@@ -1544,7 +1550,9 @@ impl<'a> DetailVisitor<'a> {
                         .and_then(|m| m.get(&lookup))
                         .cloned()
                     {
-                        if self.workspace_crates.contains(&target_crate) {
+                        if self.workspace_crates.contains(&target_crate)
+                            && target_crate != self.crate_name
+                        {
                             self.external
                                 .entry(current.clone())
                                 .or_default()
@@ -1869,6 +1877,35 @@ mod tests {
             .and_then(|m| m.get("crate_a"))
             .map(|v| v.contains(&"Foo".to_string()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn same_name_module_reexport_is_not_self_external_dependency() {
+        let src = r#"
+            mod app {
+                pub fn run() {}
+            }
+
+            pub use app::run;
+
+            pub struct Dispatch;
+
+            impl Dispatch {
+                pub fn dispatch() {
+                    run();
+                }
+            }
+        "#;
+
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("app".to_string(), vec![file])];
+
+        let info = analyze_workspace_details(&crates);
+        let app_info = info.get("app").unwrap();
+
+        assert_eq!(app_info.metrics.ce, 0);
+        assert!(app_info.external_depends_on.is_empty());
+        assert!(dependency_cycles(&info).is_empty());
     }
 
     #[test]
