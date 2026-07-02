@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2026-07-02
+### Fixed
+- Ignore self crate dependency edges when collecting package metrics.
+
+### Maintenance
+- Updated dependencies.
+
+## [0.7.2] - 2026-05-29
+### Maintenance
+- cargo upgrade & update (2026-05-04)
+- cargo update (2026-05-11)
+- cargo upgrade & update (2026-05-15)
+- cargo update (2026-05-29)
+
 ## [0.7.1] - 2026-04-12
 ### Maintenance
 - Clarified `--external-scope` usage in the documentation, including comma-separated selectors.
