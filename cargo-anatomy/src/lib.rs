@@ -1435,15 +1435,17 @@ impl<'a> DetailVisitor<'a> {
             .map(|s| s.ident.to_string())
             .unwrap_or_default();
         if let Some((Some(import_root), Some(orig))) = self.imports.get(&first_ident) {
-            if import_root == root && orig == &first_ident {
-                return first_ident;
-            }
-            if import_root == root && path.segments.len() == 2 {
-                return path
-                    .segments
-                    .last()
-                    .map(|s| s.ident.to_string())
-                    .unwrap_or_default();
+            if import_root == root {
+                if path.segments.len() == 1 {
+                    return orig.clone();
+                }
+                if path.segments.len() == 2 {
+                    return path
+                        .segments
+                        .last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                }
             }
         }
 
