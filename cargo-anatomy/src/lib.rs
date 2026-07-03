@@ -1436,8 +1436,8 @@ impl<'a> DetailVisitor<'a> {
             .unwrap_or_default();
         if let Some((Some(import_root), Some(orig))) = self.imports.get(&first_ident) {
             if import_root == root {
-                if path.segments.len() == 1 {
-                    return orig.clone();
+                if orig == &first_ident {
+                    return first_ident;
                 }
                 if path.segments.len() == 2 {
                     return path
