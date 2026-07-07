@@ -1390,8 +1390,6 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
             } else if let Some(seg) = node.segments.last() {
                 self.record_use(seg.ident.to_string(), None);
             }
-        } else if let Some(seg) = node.segments.last() {
-            self.record_use(seg.ident.to_string(), None);
         }
         syn::visit::visit_path(self, node);
     }
@@ -2079,7 +2077,7 @@ mod tests {
 
     #[test]
     fn imported_module_type_dependency_uses_defined_symbol() {
-        let src_a = "pub struct Foo; pub mod foo {}";
+        let src_a = "pub mod foo { pub struct Foo; } pub use foo::Foo;";
         let src_b = "use crate_a::foo; fn main() { let _: foo::Foo; }";
 
         let file_a: syn::File = syn::parse_str(src_a).unwrap();
