@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2026-07-07
+### Fixed
+- Broadened AST dependency detection for external workspace dependencies.
+- Preserved original dependency symbols for aliased imports, module-qualified calls and associated calls.
+- Corrected dependency path handling for functions, constants and re-exports.
+
 ## [0.7.3] - 2026-07-02
 ### Fixed
 - Ignore self crate dependency edges when collecting package metrics.
