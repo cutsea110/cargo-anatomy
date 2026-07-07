@@ -1378,28 +1378,23 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
         syn::visit::visit_item_use(self, i);
     }
     fn visit_path(&mut self, node: &'ast syn::Path) {
-        if let Some(seg) = node.segments.last() {
-            let name = seg.ident.to_string();
-            let root = self.path_root(node);
-            self.record_use(name, root);
+        if let Some(root) = self.path_root(node) {
+            let name = self.dependency_name(node, &root);
+            self.record_use(name, Some(root));
+        } else if let Some(first) = node.segments.first() {
+            let first = first.ident.to_string();
+            if self.defined.contains_key(&first) {
+                let root = self.crate_name.to_string();
+                let name = self.dependency_name(node, &root);
+                self.record_use(name, Some(root));
+            } else if let Some(seg) = node.segments.last() {
+                self.record_use(seg.ident.to_string(), None);
+            }
         }
         syn::visit::visit_path(self, node);
     }
 
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(p) = &*node.func {
-            if p.path.segments.len() >= 2 {
-                let func = p.path.segments.last().unwrap().ident.to_string();
-                let ty = p.path.segments[p.path.segments.len() - 2].ident.to_string();
-                let root = self.path_root(&p.path);
-                self.record_use(ty.clone(), root.clone());
-                let _ = self.methods.get(&(ty, func));
-            } else if let Some(seg) = p.path.segments.last() {
-                let name = seg.ident.to_string();
-                let root = self.path_root(&p.path);
-                self.record_use(name, root);
-            }
-        }
         syn::visit::visit_expr_call(self, node);
     }
 
@@ -1432,6 +1427,52 @@ impl<'ast> Visit<'ast> for DetailVisitor<'_> {
 }
 
 impl<'a> DetailVisitor<'a> {
+    fn known_symbol(&self, root: &str, ident: &str) -> bool {
+        self.all_defined
+            .get(root)
+            .is_some_and(|defs| defs.contains_key(ident))
+            || self
+                .reexports
+                .get(root)
+                .is_some_and(|defs| defs.contains_key(ident))
+    }
+
+    fn dependency_name(&self, path: &syn::Path, root: &str) -> String {
+        let first_ident = path
+            .segments
+            .first()
+            .map(|s| s.ident.to_string())
+            .unwrap_or_default();
+        if let Some((Some(import_root), Some(orig))) = self.imports.get(&first_ident) {
+            if import_root == root && (path.segments.len() == 1 || self.known_symbol(root, orig)) {
+                return orig.clone();
+            }
+        }
+
+        let mut chosen = None;
+        let skip = match path.segments.first().map(|s| s.ident.to_string()) {
+            Some(first)
+                if first == root || first == "crate" || first == "self" || first == "super" =>
+            {
+                1
+            }
+            _ => 0,
+        };
+        for seg in path.segments.iter().skip(skip) {
+            let ident = seg.ident.to_string();
+            if self.known_symbol(root, &ident) {
+                chosen = Some(ident);
+            }
+        }
+
+        chosen.unwrap_or_else(|| {
+            path.segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default()
+        })
+    }
+
     fn path_root(&self, path: &syn::Path) -> Option<String> {
         if let Some(first) = path.segments.first() {
             let ident = first.ident.to_string();
@@ -1460,7 +1501,7 @@ impl<'a> DetailVisitor<'a> {
             .clone()
             .unwrap_or_else(|| Self::ROOT_ITEM.to_string());
 
-        if name == current {
+        if name == current && root.as_deref().is_none_or(|r| r == self.crate_name) {
             return;
         }
 
@@ -1490,26 +1531,9 @@ impl<'a> DetailVisitor<'a> {
                 }
             }
             Some(ref r) => {
-                if self.workspace_crates.contains(r) {
-                    let lookup = if let Some((_, Some(orig))) = self.imports.get(&name) {
-                        orig
-                    } else {
-                        &name
-                    };
-                    if r != self.crate_name
-                        && self
-                            .all_defined
-                            .get(r)
-                            .is_some_and(|d| d.contains_key(lookup))
-                    {
-                        self.external
-                            .entry(current.clone())
-                            .or_default()
-                            .entry(r.clone())
-                            .or_default()
-                            .insert(lookup.to_string());
-                    } else if let Some((target_crate, target_name)) =
-                        self.reexports.get(r).and_then(|m| m.get(lookup)).cloned()
+                if self.workspace_crates.contains(r) && r != self.crate_name {
+                    if let Some((target_crate, target_name)) =
+                        self.reexports.get(r).and_then(|m| m.get(&name)).cloned()
                     {
                         if self.workspace_crates.contains(&target_crate)
                             && target_crate != self.crate_name
@@ -1520,8 +1544,15 @@ impl<'a> DetailVisitor<'a> {
                                 .entry(target_crate)
                                 .or_default()
                                 .insert(target_name);
+                            return;
                         }
                     }
+                    self.external
+                        .entry(current.clone())
+                        .or_default()
+                        .entry(r.clone())
+                        .or_default()
+                        .insert(name);
                 }
             }
             None => {
@@ -1531,35 +1562,33 @@ impl<'a> DetailVisitor<'a> {
                         .or_default()
                         .insert(name);
                 } else if let Some((Some(import_root), orig)) = self.imports.get(&name).cloned() {
-                    let lookup = orig.unwrap_or(name.clone());
                     if import_root != self.crate_name
-                        && self
-                            .all_defined
+                        && self.workspace_crates.contains(&import_root)
+                    {
+                        if let Some((target_crate, target_name)) = self
+                            .reexports
                             .get(&import_root)
-                            .is_some_and(|d| d.contains_key(&lookup))
-                    {
-                        self.external
-                            .entry(current.clone())
-                            .or_default()
-                            .entry(import_root.clone())
-                            .or_default()
-                            .insert(lookup);
-                    } else if let Some((target_crate, target_name)) = self
-                        .reexports
-                        .get(&import_root)
-                        .and_then(|m| m.get(&lookup))
-                        .cloned()
-                    {
-                        if self.workspace_crates.contains(&target_crate)
-                            && target_crate != self.crate_name
+                            .and_then(|m| m.get(orig.as_deref().unwrap_or(&name)))
+                            .cloned()
                         {
-                            self.external
-                                .entry(current.clone())
-                                .or_default()
-                                .entry(target_crate)
-                                .or_default()
-                                .insert(target_name);
+                            if self.workspace_crates.contains(&target_crate)
+                                && target_crate != self.crate_name
+                            {
+                                self.external
+                                    .entry(current)
+                                    .or_default()
+                                    .entry(target_crate)
+                                    .or_default()
+                                    .insert(target_name);
+                                return;
+                            }
                         }
+                        self.external
+                            .entry(current)
+                            .or_default()
+                            .entry(import_root)
+                            .or_default()
+                            .insert(orig.unwrap_or(name));
                     }
                 }
             }
@@ -1880,6 +1909,227 @@ mod tests {
     }
 
     #[test]
+    fn same_name_external_dependency_is_not_dropped() {
+        let src_a = "pub struct RuntimeMode;";
+        let src_b = r#"
+            #[allow(non_snake_case)]
+            pub fn RuntimeMode() -> crate_a::RuntimeMode {
+                crate_a::RuntimeMode
+            }
+        "#;
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("RuntimeMode")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"RuntimeMode".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn free_function_dependency_counts_function_symbol() {
+        let src_a = "pub fn helper() {}";
+        let src_b = "fn main() { crate_a::helper(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"helper".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn aliased_free_function_dependency_uses_original_symbol() {
+        let src_a = "pub fn helper() {}";
+        let src_b = "use crate_a::helper as h; fn main() { h(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"helper".to_string()) && !v.contains(&"h".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn aliased_type_dependency_uses_original_symbol() {
+        let src_a = "pub struct Foo;";
+        let src_b = "use crate_a::Foo as Bar; fn main() { let _ = Bar; let _ = Bar; }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Foo".to_string()) && !v.contains(&"Bar".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn aliased_associated_call_dependency_uses_original_symbol() {
+        let src_a = "pub struct Foo; impl Foo { pub fn new() -> Self { Foo } }";
+        let src_b = "use crate_a::Foo as Bar; fn main() { let _ = Bar::new(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Foo".to_string()) && !v.contains(&"Bar".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn imported_module_function_dependency_uses_called_symbol() {
+        let src_a = "pub mod mod1 { pub fn helper() {} }";
+        let src_b = "use crate_a::mod1; fn main() { mod1::helper(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"helper".to_string()) && !v.contains(&"mod1".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn imported_module_type_dependency_uses_defined_symbol() {
+        let src_a = "pub mod foo { pub struct Foo; } pub use foo::Foo;";
+        let src_b = "use crate_a::foo; fn main() { let _: foo::Foo; }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"Foo".to_string()) && !v.contains(&"foo".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn const_dependency_counts_const_symbol() {
+        let src_a = "pub const VALUE: u32 = 1;";
+        let src_b = "pub const OTHER: u32 = crate_a::VALUE;";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("OTHER")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"VALUE".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
     fn same_name_module_reexport_is_not_self_external_dependency() {
         let src = r#"
             mod app {
@@ -2161,6 +2411,45 @@ mod tests {
     #[test]
     fn r_counts_method_body() {
         let src = "pub struct B; pub struct A; impl A { fn make() -> B { B } }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        assert_eq!(a.metrics.r, 1);
+        let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn r_counts_unqualified_associated_call_receiver() {
+        let src = "pub struct B; pub struct A; impl B { fn new() -> Self { B } } impl A { fn make() { let _ = B::new(); } }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        assert_eq!(a.metrics.r, 1);
+        let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn r_counts_crate_qualified_associated_call_receiver() {
+        let src = "pub struct B; pub struct A; impl B { fn new() -> Self { B } } impl A { fn make() { let _ = crate::B::new(); } }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("crate_a".to_string(), vec![file.clone()])];
+        let info = analyze_workspace_details(&crates);
+        let a = info.get("crate_a").unwrap();
+        assert_eq!(a.metrics.r, 1);
+        let deps = a.internal_depends_on.get("A").cloned().unwrap_or_default();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&"B".to_string()));
+    }
+
+    #[test]
+    fn r_counts_self_qualified_associated_call_receiver() {
+        let src = "pub struct B; pub struct A; impl B { fn new() -> Self { B } } impl A { fn make() { let _ = self::B::new(); } }";
         let file: syn::File = syn::parse_str(src).unwrap();
         let crates = vec![("crate_a".to_string(), vec![file.clone()])];
         let info = analyze_workspace_details(&crates);
