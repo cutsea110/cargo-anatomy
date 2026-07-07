@@ -1436,15 +1436,19 @@ impl<'a> DetailVisitor<'a> {
             .unwrap_or_default();
         if let Some((Some(import_root), Some(orig))) = self.imports.get(&first_ident) {
             if import_root == root {
-                if orig == &first_ident {
-                    return first_ident;
+                if path.segments.len() == 1 {
+                    return orig.clone();
                 }
-                if path.segments.len() == 2 {
-                    return path
-                        .segments
-                        .last()
-                        .map(|s| s.ident.to_string())
-                        .unwrap_or_default();
+                if self
+                    .all_defined
+                    .get(root)
+                    .is_some_and(|defs| defs.contains_key(orig))
+                    || self
+                        .reexports
+                        .get(root)
+                        .is_some_and(|defs| defs.contains_key(orig))
+                {
+                    return orig.clone();
                 }
             }
         }
@@ -1960,6 +1964,60 @@ mod tests {
             .get("main")
             .and_then(|m| m.get("crate_a"))
             .map(|v| v.contains(&"helper".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn aliased_free_function_dependency_uses_original_symbol() {
+        let src_a = "pub fn helper() {}";
+        let src_b = "use crate_a::helper as h; fn main() { h(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"helper".to_string()) && !v.contains(&"h".to_string()))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn imported_module_function_dependency_uses_called_symbol() {
+        let src_a = "pub mod mod1 { pub fn helper() {} }";
+        let src_b = "use crate_a::mod1; fn main() { mod1::helper(); }";
+
+        let file_a: syn::File = syn::parse_str(src_a).unwrap();
+        let file_b: syn::File = syn::parse_str(src_b).unwrap();
+
+        let crates = vec![
+            ("crate_a".to_string(), vec![file_a.clone()]),
+            ("crate_b".to_string(), vec![file_b.clone()]),
+        ];
+
+        let info = analyze_workspace_details(&crates);
+        let a_info = info.get("crate_a").unwrap();
+        let b_info = info.get("crate_b").unwrap();
+
+        assert_eq!(b_info.metrics.ce, 1);
+        assert_eq!(a_info.metrics.ca, 1);
+        assert!(b_info
+            .external_depends_on
+            .get("main")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"helper".to_string()) && !v.contains(&"mod1".to_string()))
             .unwrap_or(false));
     }
 
