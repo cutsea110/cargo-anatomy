@@ -1699,7 +1699,7 @@ mod tests {
             }
         "#;
         let file: syn::File = syn::parse_str(src).unwrap();
-        let defs = collect_defined(&[file.clone()]);
+        let defs = collect_defined(std::slice::from_ref(&file));
         let workspace: HashSet<String> = defs.0.keys().cloned().collect();
         let metrics = analyze_files(&[file], &workspace);
         assert_eq!(metrics.n, 3);
@@ -1730,24 +1730,18 @@ mod tests {
         assert_eq!(a_info.metrics.ce, 0);
         assert_eq!(b_info.metrics.ce, 1);
 
-        assert_eq!(
-            b_info
-                .external_depends_on
-                .get("B")
-                .and_then(|m| m.get("crate_a"))
-                .map(|v| v.contains(&"A".to_string()))
-                .unwrap_or(false),
-            true
-        );
-        assert_eq!(
-            a_info
-                .external_depended_by
-                .get("A")
-                .and_then(|m| m.get("crate_b"))
-                .map(|v| v.contains(&"B".to_string()))
-                .unwrap_or(false),
-            true
-        );
+        assert!(b_info
+            .external_depends_on
+            .get("B")
+            .and_then(|m| m.get("crate_a"))
+            .map(|v| v.contains(&"A".to_string()))
+            .unwrap_or(false));
+        assert!(a_info
+            .external_depended_by
+            .get("A")
+            .and_then(|m| m.get("crate_b"))
+            .map(|v| v.contains(&"B".to_string()))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -2571,7 +2565,7 @@ mod tests {
         "#;
 
         let file: syn::File = syn::parse_str(src).unwrap();
-        let defs = collect_defined(&[file.clone()]);
+        let defs = collect_defined(std::slice::from_ref(&file));
         let workspace: HashSet<String> = defs.0.keys().cloned().collect();
         let metrics = analyze_files(&[file], &workspace);
 
