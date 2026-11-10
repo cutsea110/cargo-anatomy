@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.11] - 2026-11-10
+### Maintenance
+- Updated Docker base images to `rust:1.99-slim-trixie` and `gcr.io/distroless/cc-debian13`.
+
 ## [0.7.10] - 2026-11-10
 ### Maintenance
 - Updated dependencies.
