@@ -3,7 +3,7 @@
 # Stage 1: build
 # Use the slim Debian image. Buildx will pull the correct variant for the
 # requested architecture so multi-arch images still work.
-FROM rust:1.88-slim AS builder
+FROM rust:1.99-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN cargo install --locked --path cargo-anatomy --root /usr/local \
     && cp "$(rustup which cargo)" /usr/local/bin/cargo
 
 # Stage 2: package
-FROM gcr.io/distroless/cc AS runtime
+FROM gcr.io/distroless/cc-debian13 AS runtime
 COPY --from=builder /usr/local/bin/cargo-anatomy /usr/local/bin/
 COPY --from=builder /usr/local/bin/cargo /usr/local/bin/
 ENV CARGO=/usr/local/bin/cargo
