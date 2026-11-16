@@ -617,7 +617,7 @@ where
     };
     let out_str = match format {
         "json" => cargo_anatomy::loc_try!(serde_json::to_string(&root)),
-        "yaml" => cargo_anatomy::loc_try!(serde_yaml::to_string(&root)),
+        "yaml" => cargo_anatomy::loc_try!(serde_norway::to_string(&root)),
         "dot" => cargo_anatomy::loc_try!(graphviz_dot::to_string(
             &root,
             name_map,
