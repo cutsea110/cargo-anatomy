@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-11-16
+### Changed
+- **Breaking (library API):** the dependency map fields of `CrateDetail` (`internal_depends_on`, `internal_depended_by`, `external_depends_on`, `external_depended_by`) are now `BTreeMap` instead of `HashMap`.
+
+### Fixed
+- Output order is now deterministic across runs for all formats (JSON, YAML, Graphviz dot and Mermaid): classes, dependency maps, dependency lists and reported dependency cycles are sorted by name.
+
+### Maintenance
+- Replaced the deprecated `serde_yaml` with `serde_norway`.
+- Upgraded `cargo_metadata` to 0.23, `syn` to 3 and `toml` to 1.2.
+- Inherited `authors` from the workspace and removed redundant manifest entries (`homepage`, `[[bin]]`).
+
 ## [0.7.11] - 2026-11-10
 ### Maintenance
 - Updated Docker base images to `rust:1.99-slim-trixie` and `gcr.io/distroless/cc-debian13`.
