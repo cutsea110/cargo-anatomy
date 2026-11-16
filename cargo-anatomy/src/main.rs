@@ -7,7 +7,7 @@ use cargo_anatomy::{analyze_workspace_details_with_thresholds, parse_package, Cr
 use clap::{Arg, ArgAction, Command};
 use log::info;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 const METRICS_HELP: &[&str] = &[
@@ -156,15 +156,13 @@ struct CrateDetails {
     /// Types defined within the crate.
     classes: Vec<cargo_anatomy::ClassInfo>,
     /// Internal dependency map.
-    internal_depends_on: std::collections::HashMap<String, Vec<String>>,
+    internal_depends_on: BTreeMap<String, Vec<String>>,
     /// Inverse of `internal_depends_on`.
-    internal_depended_by: std::collections::HashMap<String, Vec<String>>,
+    internal_depended_by: BTreeMap<String, Vec<String>>,
     /// External dependencies keyed by crate and type.
-    external_depends_on:
-        std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+    external_depends_on: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     /// External dependents keyed by crate and type.
-    external_depended_by:
-        std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+    external_depended_by: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 /// Top-level entry for each crate in the output.
@@ -427,8 +425,7 @@ mod mermaid {
                         e.d_prime,
                     ));
                     if let Some(details) = &entry.details {
-                        use std::collections::HashSet;
-                        let mut nodes: HashSet<&str> =
+                        let mut nodes: std::collections::BTreeSet<&str> =
                             details.classes.iter().map(|c| c.name.as_str()).collect();
                         for key in details.internal_depends_on.keys() {
                             nodes.insert(key);

@@ -8,7 +8,7 @@
 //! by other tools as well.
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::panic::Location;
@@ -403,13 +403,13 @@ pub struct CrateDetail {
     /// All types defined within the crate.
     pub classes: Vec<ClassInfo>,
     /// Mapping of type names to the types they depend on within the crate.
-    pub internal_depends_on: HashMap<String, Vec<String>>,
+    pub internal_depends_on: BTreeMap<String, Vec<String>>,
     /// Inverse mapping of [`internal_depends_on`].
-    pub internal_depended_by: HashMap<String, Vec<String>>,
+    pub internal_depended_by: BTreeMap<String, Vec<String>>,
     /// External dependencies keyed by crate and type.
-    pub external_depends_on: HashMap<String, HashMap<String, Vec<String>>>,
+    pub external_depends_on: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     /// External dependents keyed by crate and type.
-    pub external_depended_by: HashMap<String, HashMap<String, Vec<String>>>,
+    pub external_depended_by: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 /// Traverse parsed syntax trees and collect all type definitions, counting traits.
@@ -990,7 +990,7 @@ pub fn analyze_workspace_details_with_thresholds(
         let d_prime = (a + i - 1.0).abs();
         let d = d_prime / 2f64.sqrt();
 
-        let classes = crate_defined
+        let mut classes: Vec<ClassInfo> = crate_defined
             .get(name)
             .unwrap()
             .iter()
@@ -999,21 +999,24 @@ pub fn analyze_workspace_details_with_thresholds(
                 kind: k.clone(),
             })
             .collect();
+        classes.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // Sorted containers keep the serialised output stable across runs.
+        let sorted_vec = |set: &HashSet<String>| {
+            set.iter()
+                .filter(|t| *t != DetailVisitor::ROOT_ITEM)
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
 
         let to_vec_map = |map: &HashMap<String, HashSet<String>>| {
             map.iter()
                 .filter(|(k, _)| *k != DetailVisitor::ROOT_ITEM)
-                .map(|(k, v)| {
-                    (
-                        k.clone(),
-                        v.iter()
-                            .filter(|t| *t != DetailVisitor::ROOT_ITEM)
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .filter(|(_, v): &(_, Vec<String>)| !v.is_empty())
-                .collect::<HashMap<_, _>>()
+                .map(|(k, v)| (k.clone(), sorted_vec(v)))
+                .filter(|(_, v)| !v.is_empty())
+                .collect::<BTreeMap<_, _>>()
         };
 
         let to_vec_nested = |map: &HashMap<String, HashMap<String, HashSet<String>>>| {
@@ -1024,21 +1027,13 @@ pub fn analyze_workspace_details_with_thresholds(
                         k.clone(),
                         v.iter()
                             .filter(|(k2, _)| *k2 != DetailVisitor::ROOT_ITEM)
-                            .map(|(k2, set)| {
-                                (
-                                    k2.clone(),
-                                    set.iter()
-                                        .filter(|t| *t != DetailVisitor::ROOT_ITEM)
-                                        .cloned()
-                                        .collect::<Vec<_>>(),
-                                )
-                            })
+                            .map(|(k2, set)| (k2.clone(), sorted_vec(set)))
                             .filter(|(_, v)| !v.is_empty())
-                            .collect::<HashMap<_, _>>(),
+                            .collect::<BTreeMap<_, _>>(),
                     )
                 })
                 .filter(|(_, v)| !v.is_empty())
-                .collect::<HashMap<_, _>>()
+                .collect::<BTreeMap<_, _>>()
         };
 
         result.insert(name.clone(), {
@@ -1080,7 +1075,8 @@ pub fn analyze_workspace_details_with_thresholds(
 /// Tarjan's strongly connected components algorithm.
 pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<String>> {
     // Build adjacency list of crate -> crates it depends on
-    let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
+    // Ordered containers make the reported cycles deterministic.
+    let mut graph: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (name, detail) in details {
         let entry = graph.entry(name.clone()).or_default();
         for map in detail.external_depends_on.values() {
@@ -1090,7 +1086,7 @@ pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<Stri
         }
     }
 
-    let graph: HashMap<String, Vec<String>> = graph
+    let graph: BTreeMap<String, Vec<String>> = graph
         .into_iter()
         .map(|(k, v)| (k, v.into_iter().collect()))
         .collect();
@@ -1103,7 +1099,7 @@ pub fn dependency_cycles(details: &HashMap<String, CrateDetail>) -> Vec<Vec<Stri
         indices: &mut HashMap<String, usize>,
         lowlink: &mut HashMap<String, usize>,
         on_stack: &mut HashSet<String>,
-        graph: &HashMap<String, Vec<String>>,
+        graph: &BTreeMap<String, Vec<String>>,
         result: &mut Vec<Vec<String>>,
     ) {
         indices.insert(v.clone(), *index);
@@ -2829,6 +2825,45 @@ mod tests {
         assert!(cyc.contains(&"crate_a".to_string()));
         assert!(cyc.contains(&"crate_b".to_string()));
         assert!(cyc.contains(&"crate_c".to_string()));
+    }
+
+    #[test]
+    fn details_are_sorted_for_stable_output() {
+        let src = "pub struct Zeta; pub struct Alpha; pub enum Mid { A(Zeta), B(Alpha) }";
+        let file: syn::File = syn::parse_str(src).unwrap();
+        let crates = vec![("c".to_string(), vec![file])];
+
+        let info = analyze_workspace_details(&crates);
+        let detail = info.get("c").unwrap();
+        let names: Vec<&str> = detail.classes.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "Mid", "Zeta"]);
+        assert_eq!(
+            detail.internal_depends_on.get("Mid").unwrap(),
+            &["Alpha".to_string(), "Zeta".to_string()]
+        );
+    }
+
+    #[test]
+    fn three_crate_cycle_order_is_deterministic() {
+        let srcs = [
+            ("crate_c", "use crate_a::A; pub struct C(A);"),
+            ("crate_a", "use crate_b::B; pub struct A(B);"),
+            ("crate_b", "use crate_c::C; pub struct B(C);"),
+        ];
+        let crates: Vec<_> = srcs
+            .iter()
+            .map(|(n, s)| (n.to_string(), vec![syn::parse_str::<syn::File>(s).unwrap()]))
+            .collect();
+
+        let info = analyze_workspace_details(&crates);
+        assert_eq!(
+            dependency_cycles(&info),
+            vec![vec![
+                "crate_a".to_string(),
+                "crate_b".to_string(),
+                "crate_c".to_string()
+            ]]
+        );
     }
 
     #[test]
