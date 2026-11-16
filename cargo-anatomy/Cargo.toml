@@ -15,8 +15,8 @@ categories = [
 ]
 
 [dependencies]
-cargo_metadata = "0.21"
-syn = { version = "2", features = ["full", "visit"] }
+cargo_metadata = "0.23"
+syn = { version = "3", features = ["full", "visit"] }
 walkdir = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,7 +24,7 @@ serde_yaml = "0.9"
 log = "0.4"
 env_logger = "0.11"
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"
+toml = "1.2"
 
 [dev-dependencies]
 tempfile = "3"
