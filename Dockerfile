@@ -10,8 +10,11 @@ WORKDIR /app
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY cargo-anatomy/Cargo.toml cargo-anatomy/Cargo.toml
-# Prefetch dependencies so later stages can leverage Docker layer caching
-RUN cargo fetch --locked --manifest-path cargo-anatomy/Cargo.toml
+# Prefetch dependencies so later stages can leverage Docker layer caching.
+# Stub sources let Cargo auto-discover targets before the real code is copied.
+RUN mkdir -p cargo-anatomy/src \
+    && touch cargo-anatomy/src/lib.rs cargo-anatomy/src/main.rs \
+    && cargo fetch --locked --manifest-path cargo-anatomy/Cargo.toml
 COPY . .
 RUN cargo install --locked --path cargo-anatomy --root /usr/local \
     && strip /usr/local/bin/cargo-anatomy \
